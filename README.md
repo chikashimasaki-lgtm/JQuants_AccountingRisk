@@ -23,9 +23,9 @@
 
 1. [J-Quants](https://jpx-jquants.com/) に登録（無料Freeプラン）
 2. Apps Script プロジェクトを作成し、`src/` の中身を push（clasp）またはコピペ
-3. スクリプトプロパティに認証情報を設定（どちらか）
-   - `JQUANTS_MAIL` と `JQUANTS_PASSWORD`
-   - または `JQUANTS_REFRESH_TOKEN`（マイページで発行したもの）
+3. J-Quants ダッシュボードで **APIキー** を発行し、スクリプトプロパティに設定
+   - `JQUANTS_API_KEY` = 発行したAPIキー
+   - ※ J-Quants は **V2 でAPIキー方式**（`x-api-key` ヘッダー）に移行。トークン交換は不要・キーに有効期限なし。
 4. スプレッドシートを再読み込み → メニュー「会計リスク」
 
 ## 使い方

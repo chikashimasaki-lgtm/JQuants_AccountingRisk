@@ -5,41 +5,38 @@
 //  会計リスク（利益操作・急悪化）の兆候をランク付けする。投資助言ではない。
 //
 //  使い方（初回）:
-//   1) スクリプトプロパティに JQUANTS_MAIL / JQUANTS_PASSWORD を設定
-//      （または JQUANTS_REFRESH_TOKEN を直接設定してもよい）
+//   1) スクリプトプロパティに JQUANTS_API_KEY を設定（J-Quants V2はAPIキー方式）
+//      ダッシュボードで発行したAPIキーを x-api-key ヘッダーで送る。トークン交換は不要。
 //   2) メニュー「会計リスク」→ セットアップ
 //   3) ① プライム銘柄を取得 → ② 財務データを収集 → ③ リスクスコアを計算
-//
-//  ※「要確認」コメントの箇所は J-Quants の仕様変更で名称が変わり得る点。
 // ============================================================================
 
 const JQ = {
-  BASE: 'https://api.jquants.com/v1',
+  BASE: 'https://api.jquants.com/v2',   // J-Quants V2
   SHEETS: {
     UNIVERSE:   '銘柄マスタ',        // プライム銘柄一覧
     STATEMENTS: '財務データ',        // 収集した決算（生データ）
     RANKING:    'リスクランキング',  // スコア計算結果
   },
-  MARKET_NAME_PRIME: 'プライム',     // /listed/info の MarketCodeName（要確認）
-  MARKET_CODE_PRIME: '0111',         // /listed/info の MarketCode（要確認）
-  ID_TOKEN_TTL_SEC: 23 * 3600,       // idTokenは24h有効 → 安全に23hだけキャッシュ
+  MARKET_NAME_PRIME: 'プライム',     // /equities/master の MktNm
+  MARKET_CODE_PRIME: '0111',         // /equities/master の Mkt（0111=プライム）
   TIME_BUDGET_MS:   4.5 * 60 * 1000, // 1回の実行で使う時間上限（GAS 6分制限対策）
 };
 
-// J-Quants /fins/statements で参照する項目名（要確認: 公式ドキュメント準拠）
+// J-Quants V2 /fins/summary の項目名（短縮化されている）
 const F = {
-  code:      'LocalCode',
-  disclosed: 'DisclosedDate',
-  periodType:'TypeOfCurrentPeriod',   // 'FY' | '1Q' | '2Q' | '3Q'
-  docType:   'TypeOfDocument',
-  netSales:  'NetSales',
-  opProfit:  'OperatingProfit',
-  ordProfit: 'OrdinaryProfit',
-  profit:    'Profit',
-  totalAssets:'TotalAssets',
-  equity:    'Equity',
-  cfo:       'CashFlowsFromOperatingActivities',
-  eps:       'EarningsPerShare',
+  code:       'Code',
+  disclosed:  'DiscDate',
+  periodType: 'CurPerType',   // 'FY' | '1Q' | '2Q' | '3Q'
+  docType:    'DocType',
+  netSales:   'Sales',
+  opProfit:   'OP',
+  ordProfit:  'OdP',
+  profit:     'NP',
+  totalAssets:'TA',
+  equity:     'Eq',
+  cfo:        'CFO',
+  eps:        'EPS',
 };
 
 // ============================================================================
@@ -66,44 +63,18 @@ function setup() {
 }
 
 // ============================================================================
-//  認証（auth_user → refreshToken → auth_refresh → idToken）
+//  認証（V2: APIキー方式。x-api-key ヘッダー。トークン交換は廃止）
 // ============================================================================
 
-function getIdToken_() {
-  const cache = CacheService.getScriptCache();
-  const cached = cache.get('JQ_ID_TOKEN');
-  if (cached) return cached;
-
-  const props   = PropertiesService.getScriptProperties();
-  let   refresh = props.getProperty('JQUANTS_REFRESH_TOKEN');
-
-  if (!refresh) {
-    const mail = props.getProperty('JQUANTS_MAIL');
-    const pass = props.getProperty('JQUANTS_PASSWORD');
-    if (!mail || !pass) throw new Error('JQUANTS_MAIL / JQUANTS_PASSWORD（または JQUANTS_REFRESH_TOKEN）を設定してください');
-    const res = UrlFetchApp.fetch(JQ.BASE + '/token/auth_user', {
-      method: 'post', contentType: 'application/json',
-      payload: JSON.stringify({ mailaddress: mail, password: pass }),
-      muteHttpExceptions: true,
-    });
-    if (res.getResponseCode() !== 200) throw new Error('auth_user失敗: ' + res.getContentText().slice(0, 300));
-    refresh = JSON.parse(res.getContentText()).refreshToken;
-  }
-
-  const r2 = UrlFetchApp.fetch(
-    JQ.BASE + '/token/auth_refresh?refreshtoken=' + encodeURIComponent(refresh),
-    { method: 'post', muteHttpExceptions: true }
-  );
-  if (r2.getResponseCode() !== 200) throw new Error('auth_refresh失敗: ' + r2.getContentText().slice(0, 300));
-  const idToken = JSON.parse(r2.getContentText()).idToken;
-
-  cache.put('JQ_ID_TOKEN', idToken, JQ.ID_TOKEN_TTL_SEC);
-  return idToken;
+function getApiKey_() {
+  const key = PropertiesService.getScriptProperties().getProperty('JQUANTS_API_KEY');
+  if (!key) throw new Error('JQUANTS_API_KEY をスクリプトプロパティに設定してください（J-Quants V2はAPIキー方式）');
+  return key;
 }
 
-// GET（pagination_key 自動追従）。戻り値はレスポンスJSONの配列。
+// GET（pagination_key 自動追従）。戻り値はデータ配列（V2は "data" キー）。
 function jqGet_(path, params) {
-  const idToken = getIdToken_();
+  const apiKey = getApiKey_();
   const base = JQ.BASE + path;
   const q = params
     ? Object.keys(params).filter(k => params[k] != null && params[k] !== '')
@@ -111,19 +82,18 @@ function jqGet_(path, params) {
     : '';
   let url = q ? base + '?' + q : base;
 
-  const pages = [];
+  const out = [];
   let pagination = null;
   do {
     const u = pagination ? url + (url.includes('?') ? '&' : '?') + 'pagination_key=' + encodeURIComponent(pagination) : url;
-    const res  = UrlFetchApp.fetch(u, { headers: { Authorization: 'Bearer ' + idToken }, muteHttpExceptions: true });
+    const res  = UrlFetchApp.fetch(u, { headers: { 'x-api-key': apiKey }, muteHttpExceptions: true });
     const code = res.getResponseCode();
-    if (code === 401) { CacheService.getScriptCache().remove('JQ_ID_TOKEN'); }
     if (code !== 200) throw new Error('GET ' + path + ' 失敗(' + code + '): ' + res.getContentText().slice(0, 300));
     const json = JSON.parse(res.getContentText());
-    pages.push(json);
+    if (Array.isArray(json.data)) out.push.apply(out, json.data);
     pagination = json.pagination_key || null;
   } while (pagination);
-  return pages;
+  return out;
 }
 
 // ============================================================================
@@ -131,15 +101,14 @@ function jqGet_(path, params) {
 // ============================================================================
 
 function fetchPrimeUniverse() {
-  const pages = jqGet_('/listed/info');
-  const info  = pages.reduce((a, p) => a.concat(p.info || []), []);
-  const prime = info.filter(x => x.MarketCode === JQ.MARKET_CODE_PRIME || x.MarketCodeName === JQ.MARKET_NAME_PRIME);
+  const info  = jqGet_('/equities/master');
+  const prime = info.filter(x => x.Mkt === JQ.MARKET_CODE_PRIME || x.MktNm === JQ.MARKET_NAME_PRIME);
 
   const rows = prime.map(x => [
     String(x.Code),
-    x.CompanyName || '',
-    x.Sector17CodeName || x.Sector33CodeName || '',
-    x.MarketCodeName || '',
+    x.CoName || '',
+    x.S17Nm || x.S33Nm || '',
+    x.MktNm || '',
   ]);
 
   const sh = SpreadsheetApp.getActive().getSheetByName(JQ.SHEETS.UNIVERSE);
@@ -183,8 +152,7 @@ function collectStatements() {
     if (Date.now() - start > JQ.TIME_BUDGET_MS) break;
     const code = queue.shift();
     try {
-      const pages = jqGet_('/fins/statements', { code: code });
-      const list  = pages.reduce((a, p) => a.concat(p.statements || []), []);
+      const list = jqGet_('/fins/summary', { code: code });
       list.forEach(s => {
         const key = s[F.code] + '|' + s[F.disclosed] + '|' + s[F.periodType];
         if (seen.has(key)) return;
