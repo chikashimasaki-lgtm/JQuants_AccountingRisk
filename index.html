@@ -58,6 +58,7 @@
       <th class="l" data-k="name">企業名</th>
       <th class="l" data-k="sector">業種</th>
       <th data-k="risk">会計リスク▼</th>
+      <th data-k="price">株価</th>
       <th data-k="accruals">アクルーアル</th>
       <th data-k="opMarginChg">営業益率変化</th>
       <th data-k="equityRatio">自己資本比率</th>
@@ -83,11 +84,11 @@
 const MOCK = {
   updated: new Date().toISOString(), market: 'プライム',
   items: [
-    { code:'9999', name:'（サンプル）アクルーアル商事', sector:'卸売業', risk:74.2, accruals:0.182, cfFlag:'⚠', opMarginChg:-0.061, equityRatio:0.18, specialDep:0.044, disclosed:'2026-02-14' },
-    { code:'8888', name:'（サンプル）キャッシュ乖離製作所', sector:'機械', risk:66.8, accruals:0.121, cfFlag:'⚠', opMarginChg:-0.012, equityRatio:0.33, specialDep:0.019, disclosed:'2026-05-10' },
-    { code:'7777', name:'（サンプル）マージン急変電機', sector:'電気機器', risk:58.3, accruals:0.061, cfFlag:'', opMarginChg:-0.058, equityRatio:0.41, specialDep:0.008, disclosed:'2026-04-28' },
-    { code:'6666', name:'（サンプル）平常運転サービス', sector:'情報・通信業', risk:49.1, accruals:-0.004, cfFlag:'', opMarginChg:0.006, equityRatio:0.55, specialDep:0.002, disclosed:'2026-05-12' },
-    { code:'5555', name:'（サンプル）優良キャッシュ食品', sector:'食料品', risk:41.7, accruals:-0.052, cfFlag:'', opMarginChg:0.014, equityRatio:0.68, specialDep:0.001, disclosed:'2026-03-30' },
+    { code:'9999', name:'（サンプル）アクルーアル商事', sector:'卸売業', risk:74.2, price:1234, accruals:0.182, cfFlag:'⚠', opMarginChg:-0.061, equityRatio:0.18, specialDep:0.044, disclosed:'2026-02-14' },
+    { code:'8888', name:'（サンプル）キャッシュ乖離製作所', sector:'機械', risk:66.8, price:3820, accruals:0.121, cfFlag:'⚠', opMarginChg:-0.012, equityRatio:0.33, specialDep:0.019, disclosed:'2026-05-10' },
+    { code:'7777', name:'（サンプル）マージン急変電機', sector:'電気機器', risk:58.3, price:958, accruals:0.061, cfFlag:'', opMarginChg:-0.058, equityRatio:0.41, specialDep:0.008, disclosed:'2026-04-28' },
+    { code:'6666', name:'（サンプル）平常運転サービス', sector:'情報・通信業', risk:49.1, price:2145, accruals:-0.004, cfFlag:'', opMarginChg:0.006, equityRatio:0.55, specialDep:0.002, disclosed:'2026-05-12' },
+    { code:'5555', name:'（サンプル）優良キャッシュ食品', sector:'食料品', risk:41.7, price:5600, accruals:-0.052, cfFlag:'', opMarginChg:0.014, equityRatio:0.68, specialDep:0.001, disclosed:'2026-03-30' },
   ]
 };
 
@@ -119,6 +120,7 @@ function render(){
       <td class="l"><span class="name">${r.name}</span> <span class="code">${r.code}</span></td>
       <td class="l">${r.sector||''}</td>
       <td><span class="risk ${riskClass(r.risk)}">${fnum(r.risk,1)}</span>${r.cfFlag?'<span class="badge">CF-</span>':''}</td>
+      <td>${r.price===''||r.price==null?'':Number(r.price).toLocaleString()}</td>
       <td>${fnum(r.accruals)}</td>
       <td class="${signClass(r.opMarginChg)}">${fnum(r.opMarginChg)}</td>
       <td>${fnum(r.equityRatio)}</td>

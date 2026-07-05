@@ -65,6 +65,8 @@ function setup() {
   const ss = SpreadsheetApp.getActive();
   [JQ.SHEETS.UNIVERSE, JQ.SHEETS.STATEMENTS, JQ.SHEETS.RANKING]
     .forEach(name => { if (!ss.getSheetByName(name)) ss.insertSheet(name); });
+  const tab = { [JQ.SHEETS.UNIVERSE]: '#5b6bd6', [JQ.SHEETS.STATEMENTS]: '#1aa8a0', [JQ.SHEETS.RANKING]: '#e0567a' };
+  Object.keys(tab).forEach(n => { const s = ss.getSheetByName(n); if (s) s.setTabColor(tab[n]); });
   createUsageSheet();
   writeWorkflowDiagram_();
   ss.toast('シート一式（使い方・ワークフロー含む）を準備しました', '会計リスク', 5);
@@ -123,8 +125,10 @@ function fetchPrimeUniverse() {
   sh.clearContents();
   sh.getRange(1, 1, 1, 4).setValues([['コード', '企業名', '業種', '市場']]);
   if (rows.length) sh.getRange(2, 1, rows.length, 4).setValues(rows);
-  sh.getRange(1, 1, sh.getLastRow(), 1).setHorizontalAlignment('right');  // コード列を右寄せ
-  autoFit_(sh, 4);  // 列幅をデータ/ヘッダの最大幅に自動調整
+  styleSheet_(sh, 4, '#1a1e3a', '#eef3fc');
+  if (sh.getLastRow() > 1) sh.getRange(2, 1, sh.getLastRow() - 1, 1).setHorizontalAlignment('right');  // コード列を右寄せ
+  autoFit_(sh, 4);
+  sh.setTabColor('#5b6bd6');
   Logger.log('プライム銘柄: ' + rows.length + '件 / 全上場 ' + info.length + '件');
   SpreadsheetApp.getActive().toast('プライム ' + rows.length + '件を取得', '会計リスク', 5);
 }
@@ -190,8 +194,10 @@ function collectStatements() {
   } else {
     props.deleteProperty('JQ_COLLECT_QUEUE');
     if (st.getLastColumn() > 0) {
-      st.getRange(1, 1, st.getLastRow(), 1).setHorizontalAlignment('right');  // コード列を右寄せ
-      autoFit_(st, st.getLastColumn());  // 列幅をデータ/ヘッダの最大幅に自動調整
+      styleSheet_(st, st.getLastColumn(), '#13324a', '#eaf3f4');
+      if (st.getLastRow() > 1) st.getRange(2, 1, st.getLastRow() - 1, 1).setHorizontalAlignment('right');  // コード列を右寄せ
+      autoFit_(st, st.getLastColumn());
+      st.setTabColor('#1aa8a0');
     }
     Logger.log('収集完了');
     SpreadsheetApp.getActive().toast('財務データ収集が完了しました', '会計リスク', 5);
@@ -244,6 +250,62 @@ function autoFit_(sheet, numCols) {
   for (let c = 1; c <= numCols; c++) {
     sheet.setColumnWidth(c, Math.max(sheet.getColumnWidth(c) + 12, 60));  // 余白+最小幅
   }
+}
+
+// 日本株の現在株価を Yahoo Finance から取得（4桁コード+.T）。fetchAllで並列・時間保険つき。
+function fetchPricesJP_(codes) {
+  const out  = {};
+  const uniq = Array.from(new Set(codes.filter(Boolean).map(String)));
+  const CHUNK = 40;
+  const start = Date.now();
+  for (let i = 0; i < uniq.length; i += CHUNK) {
+    if (Date.now() - start > 3 * 60 * 1000) break;  // 時間保険（全体で最大3分）
+    const slice = uniq.slice(i, i + CHUNK);
+    const reqs  = slice.map(c => ({
+      url: 'https://query1.finance.yahoo.com/v8/finance/chart/' + encodeURIComponent(c) + '.T',
+      headers: { 'User-Agent': 'Mozilla/5.0' },
+      muteHttpExceptions: true,
+    }));
+    let resps;
+    try { resps = UrlFetchApp.fetchAll(reqs); } catch (e) { continue; }
+    resps.forEach((res, j) => {
+      try {
+        if (res.getResponseCode() !== 200) return;
+        const p = JSON.parse(res.getContentText()).chart.result[0].meta.regularMarketPrice;
+        if (p && p > 0) out[slice[j]] = p;
+      } catch (_) {}
+    });
+    Utilities.sleep(200);
+  }
+  return out;
+}
+
+// 会計リスク列（4列目）に緑→黄→赤のカラースケールを適用
+function applyRiskColorScale_(rank) {
+  if (rank.getLastRow() < 2) return;
+  const rng  = rank.getRange(2, 4, rank.getLastRow() - 1, 1);
+  const rule = SpreadsheetApp.newConditionalFormatRule()
+    .setGradientMinpointWithValue('#b7e4c7', SpreadsheetApp.InterpolationType.PERCENTILE, '10')
+    .setGradientMidpointWithValue('#ffe08a', SpreadsheetApp.InterpolationType.PERCENTILE, '50')
+    .setGradientMaxpointWithValue('#ff8a95', SpreadsheetApp.InterpolationType.PERCENTILE, '90')
+    .setRanges([rng]).build();
+  rank.setConditionalFormatRules([rule]);
+}
+
+// ヘッダ色＋行縞（バンディング）でシートを装飾。headerColor=濃色, altColor=淡色の縞
+function styleSheet_(sheet, numCols, headerColor, altColor) {
+  if (!sheet || sheet.getLastRow() < 1 || numCols < 1) return;
+  const lastRow = sheet.getLastRow();
+  // 既存バンディングを除去（再実行で重複エラーにしない）
+  sheet.getRange(1, 1, sheet.getMaxRows(), sheet.getMaxColumns()).getBandings().forEach(b => b.remove());
+  const band = sheet.getRange(1, 1, lastRow, numCols)
+    .applyRowBanding(SpreadsheetApp.BandingTheme.LIGHT_GREY, true, false);
+  band.setHeaderRowColor(headerColor).setFirstRowColor('#ffffff').setSecondRowColor(altColor);
+  sheet.getRange(1, 1, 1, numCols)
+    .setFontColor('#ffffff').setFontWeight('bold')
+    .setHorizontalAlignment('center').setVerticalAlignment('middle');
+  sheet.setFrozenRows(1);
+  sheet.setRowHeight(1, 30);
 }
 
 // ============================================================================
@@ -314,22 +376,28 @@ function computeRiskScores() {
 
   recs.sort((a, b) => (b.risk ?? -1) - (a.risk ?? -1));
 
+  const priceMap = fetchPricesJP_(recs.map(r => r.code));  // 現在株価（Yahoo）
+
   const out = recs.map(r => [
     r.code, r.name, r.sector, r.risk,
     fmt_(r.accruals, 3), r.flagCF ? '⚠' : '',
     fmt_(r.opMarginChg, 3), fmt_(r.equityRatio, 3), fmt_(r.specialDep, 3), r.disclosed,
+    priceMap[r.code] != null ? priceMap[r.code] : '',
   ]);
 
   const rank = ss.getSheetByName(JQ.SHEETS.RANKING);
   rank.clearContents();
-  rank.getRange(1, 1, 1, 10).setValues([[
+  rank.getRange(1, 1, 1, 11).setValues([[
     'コード', '企業名', '業種', '会計リスク',
-    'アクルーアル', '黒字CF-', '営業益率変化', '自己資本比率', '特別損益依存', '最新開示日']]);
-  if (out.length) rank.getRange(2, 1, out.length, 10).setValues(out);
+    'アクルーアル', '黒字CF-', '営業益率変化', '自己資本比率', '特別損益依存', '最新開示日', '株価']]);
+  if (out.length) rank.getRange(2, 1, out.length, 11).setValues(out);
   rank.setFrozenRows(1);
-  rank.getRange(1, 1, rank.getLastRow(), 1).setHorizontalAlignment('right');  // コード列を右寄せ
-  autoFit_(rank, 10);  // 列幅をデータ/ヘッダの最大幅に自動調整
-  Logger.log('リスク計算完了: ' + out.length + '社');
+  styleSheet_(rank, 11, '#3a1530', '#f7ecf3');
+  if (rank.getLastRow() > 1) rank.getRange(2, 1, rank.getLastRow() - 1, 1).setHorizontalAlignment('right');  // コード列を右寄せ
+  autoFit_(rank, 11);
+  applyRiskColorScale_(rank);   // 会計リスク列にカラースケール（高=赤 / 低=緑）
+  rank.setTabColor('#e0567a');
+  Logger.log('リスク計算完了: ' + out.length + '社 / 株価取得 ' + Object.keys(priceMap).length + '件');
   SpreadsheetApp.getActive().toast(out.length + '社をランク付けしました', '会計リスク', 5);
 }
 
@@ -345,7 +413,7 @@ function exportJson() {
   if (!rank || rank.getLastRow() < 2) throw new Error('先に「③ リスクスコアを計算」を実行してください');
 
   const header = rank.getRange(1, 1, 1, rank.getLastColumn()).getValues()[0];
-  const keys   = ['code', 'name', 'sector', 'risk', 'accruals', 'cfFlag', 'opMarginChg', 'equityRatio', 'specialDep', 'disclosed'];
+  const keys   = ['code', 'name', 'sector', 'risk', 'accruals', 'cfFlag', 'opMarginChg', 'equityRatio', 'specialDep', 'disclosed', 'price'];
   const data   = rank.getRange(2, 1, rank.getLastRow() - 1, header.length).getValues()
     .map(r => Object.fromEntries(keys.map((k, i) => [k, r[i]])));
 
@@ -423,6 +491,7 @@ function createUsageSheet() {
     }
   });
   sh.getRange(1, 1, rows.length, 1).setVerticalAlignment('middle');
+  sh.setTabColor('#f4b400');
   ss.setActiveSheet(sh);
   return sh;
 }
@@ -481,6 +550,7 @@ function writeWorkflowDiagram_() {
   box('GitHub Pages で公開\nindex.html が JSON を読み込み、ランキングを表示', '→ 公開ページ', '#e8e8e8', '#333333');
 
   sh.getRange(1, 1, r - 1, 3).setVerticalAlignment('middle');
+  sh.setTabColor('#4285f4');
   ss.setActiveSheet(sh);
   return sh;
 }
