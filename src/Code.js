@@ -282,10 +282,10 @@ function fetchPricesJP_(codes) {
   return out;
 }
 
-// 会計リスク列（4列目）に緑→黄→赤のカラースケールを適用
+// 会計リスク列（5列目）に緑→黄→赤のカラースケールを適用
 function applyRiskColorScale_(rank) {
   if (rank.getLastRow() < 2) return;
-  const rng  = rank.getRange(2, 4, rank.getLastRow() - 1, 1);
+  const rng  = rank.getRange(2, 5, rank.getLastRow() - 1, 1);
   const rule = SpreadsheetApp.newConditionalFormatRule()
     .setGradientMinpointWithValue('#b7e4c7', SpreadsheetApp.InterpolationType.PERCENTILE, '10')
     .setGradientMidpointWithValue('#ffe08a', SpreadsheetApp.InterpolationType.PERCENTILE, '50')
@@ -397,7 +397,8 @@ function computeRiskScores() {
 
   const priceMap = fetchPricesJP_(recs.map(r => r.code));  // 現在株価（Yahoo）
 
-  const out = recs.map(r => [
+  const out = recs.map((r, i) => [
+    i + 1,                            // 順位（会計リスクの高い順）
     r.code, r.name, r.sector, r.risk,
     fmt_(r.accruals, 3), r.flagCF ? '⚠' : '',
     fmt_(r.opMarginChg, 3), fmt_(r.equityRatio, 3), fmt_(r.specialDep, 3), r.disclosed,
@@ -407,17 +408,20 @@ function computeRiskScores() {
 
   const rank = ss.getSheetByName(JQ.SHEETS.RANKING);
   rank.clearContents();
-  rank.getRange(1, 1, 1, 12).setValues([[
-    'コード', '企業名', '業種', '会計リスク',
+  rank.getRange(1, 1, 1, 13).setValues([[
+    '順位', 'コード', '企業名', '業種', '会計リスク',
     'アクルーアル', '黒字CF-', '営業益率変化', '自己資本比率', '特別損益依存', '最新開示日', '株価', '解説']]);
-  if (out.length) rank.getRange(2, 1, out.length, 12).setValues(out);
+  if (out.length) rank.getRange(2, 1, out.length, 13).setValues(out);
   rank.setFrozenRows(1);
-  if (rank.getLastRow() > 1) rank.getRange(2, 11, rank.getLastRow() - 1, 1).setNumberFormat('#,##0');  // 株価は3桁カンマ区切り
-  styleSheet_(rank, 12, '#3a1530', '#f7ecf3');
-  if (rank.getLastRow() > 1) rank.getRange(2, 1, rank.getLastRow() - 1, 1).setHorizontalAlignment('right');  // コード列を右寄せ
-  autoFit_(rank, 11);                 // 11列目まで内容にフィット
-  rank.setColumnWidth(12, 460);       // 解説列は固定幅＋折返し
-  if (rank.getLastRow() > 1) rank.getRange(2, 12, rank.getLastRow() - 1, 1).setWrap(true);
+  if (rank.getLastRow() > 1) rank.getRange(2, 12, rank.getLastRow() - 1, 1).setNumberFormat('#,##0');  // 株価は3桁カンマ区切り
+  styleSheet_(rank, 13, '#3a1530', '#f7ecf3');
+  if (rank.getLastRow() > 1) {
+    rank.getRange(2, 1, rank.getLastRow() - 1, 1).setHorizontalAlignment('center');  // 順位を中央
+    rank.getRange(2, 2, rank.getLastRow() - 1, 1).setHorizontalAlignment('right');   // コードを右寄せ
+  }
+  autoFit_(rank, 12);                 // 12列目まで内容にフィット
+  rank.setColumnWidth(13, 460);       // 解説列は固定幅＋折返し
+  if (rank.getLastRow() > 1) rank.getRange(2, 13, rank.getLastRow() - 1, 1).setWrap(true);
   applyRiskColorScale_(rank);         // 会計リスク列にカラースケール（高=赤 / 低=緑）
   rank.setTabColor('#e0567a');
   Logger.log('リスク計算完了: ' + out.length + '社 / 株価取得 ' + Object.keys(priceMap).length + '件');
@@ -436,7 +440,7 @@ function exportJson() {
   if (!rank || rank.getLastRow() < 2) throw new Error('先に「③ リスクスコアを計算」を実行してください');
 
   const header = rank.getRange(1, 1, 1, rank.getLastColumn()).getValues()[0];
-  const keys   = ['code', 'name', 'sector', 'risk', 'accruals', 'cfFlag', 'opMarginChg', 'equityRatio', 'specialDep', 'disclosed', 'price', 'comment'];
+  const keys   = ['rank', 'code', 'name', 'sector', 'risk', 'accruals', 'cfFlag', 'opMarginChg', 'equityRatio', 'specialDep', 'disclosed', 'price', 'comment'];
   const data   = rank.getRange(2, 1, rank.getLastRow() - 1, header.length).getValues()
     .map(r => Object.fromEntries(keys.map((k, i) => [k, r[i]])));
 
