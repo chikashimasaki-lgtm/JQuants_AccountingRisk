@@ -246,7 +246,9 @@ function to4_(code) {
 // 列幅を「データまたはヘッダの内容の最大幅」に自動調整（内容にフィット＋余白・最小幅を確保）
 function autoFit_(sheet, numCols) {
   if (!sheet || sheet.getLastRow() < 1 || numCols < 1) return;
-  sheet.autoResizeColumns(1, numCols);   // ヘッダ行を含む全セルの最大幅にフィット
+  SpreadsheetApp.flush();                 // 直前のsetValuesを確定させてから幅を計測する
+  sheet.autoResizeColumns(1, numCols);    // ヘッダ行を含む全セルの最大幅にフィット
+  SpreadsheetApp.flush();
   for (let c = 1; c <= numCols; c++) {
     sheet.setColumnWidth(c, Math.max(sheet.getColumnWidth(c) + 12, 60));  // 余白+最小幅
   }
@@ -410,6 +412,7 @@ function computeRiskScores() {
     'アクルーアル', '黒字CF-', '営業益率変化', '自己資本比率', '特別損益依存', '最新開示日', '株価', '解説']]);
   if (out.length) rank.getRange(2, 1, out.length, 12).setValues(out);
   rank.setFrozenRows(1);
+  if (rank.getLastRow() > 1) rank.getRange(2, 11, rank.getLastRow() - 1, 1).setNumberFormat('#,##0');  // 株価は3桁カンマ区切り
   styleSheet_(rank, 12, '#3a1530', '#f7ecf3');
   if (rank.getLastRow() > 1) rank.getRange(2, 1, rank.getLastRow() - 1, 1).setHorizontalAlignment('right');  // コード列を右寄せ
   autoFit_(rank, 11);                 // 11列目まで内容にフィット
