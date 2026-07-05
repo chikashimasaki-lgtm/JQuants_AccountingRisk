@@ -122,7 +122,7 @@ function fetchPrimeUniverse() {
   ]);
 
   const sh = SpreadsheetApp.getActive().getSheetByName(JQ.SHEETS.UNIVERSE);
-  sh.clearContents();
+  sh.clear();   // 内容＋書式をクリア
   sh.getRange(1, 1, 1, 4).setValues([['コード', '企業名', '業種', '市場']]);
   if (rows.length) sh.getRange(2, 1, rows.length, 4).setValues(rows);
   styleSheet_(sh, 4, '#1a1e3a', '#eef3fc');
@@ -416,13 +416,21 @@ function computeRiskScores() {
   ]);
 
   const rank = ss.getSheetByName(JQ.SHEETS.RANKING);
-  rank.clearContents();
+  rank.clear();   // 内容＋書式をクリア（列順変更で残る古い日付書式などを除去）
   rank.getRange(1, 1, 1, 13).setValues([[
     '順位', 'コード', '企業名', '業種', '会計リスク',
     'アクルーアル', '黒字CF-', '営業益率変化', '自己資本比率', '特別損益依存', '最新開示日', '株価', '解説']]);
   if (out.length) rank.getRange(2, 1, out.length, 13).setValues(out);
   rank.setFrozenRows(1);
-  if (rank.getLastRow() > 1) rank.getRange(2, 12, rank.getLastRow() - 1, 1).setNumberFormat('#,##0');  // 株価は3桁カンマ区切り
+  if (rank.getLastRow() > 1) {
+    const n = rank.getLastRow() - 1;
+    rank.getRange(2, 1,  n, 1).setNumberFormat('0');       // 順位
+    rank.getRange(2, 5,  n, 1).setNumberFormat('0.0');     // 会計リスク
+    rank.getRange(2, 6,  n, 1).setNumberFormat('0.###');   // アクルーアル
+    rank.getRange(2, 8,  n, 3).setNumberFormat('0.###');   // 営業益率変化 / 自己資本比率 / 特別損益依存
+    rank.getRange(2, 11, n, 1).setNumberFormat('@');       // 最新開示日（文字列として表示）
+    rank.getRange(2, 12, n, 1).setNumberFormat('#,##0');   // 株価は3桁カンマ区切り
+  }
   styleSheet_(rank, 13, '#3a1530', '#f7ecf3');
   if (rank.getLastRow() > 1) {
     rank.getRange(2, 1, rank.getLastRow() - 1, 1).setHorizontalAlignment('center');  // 順位を中央
