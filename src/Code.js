@@ -17,6 +17,8 @@ const JQ = {
     UNIVERSE:   '銘柄マスタ',        // プライム銘柄一覧
     STATEMENTS: '財務データ',        // 収集した決算（生データ）
     RANKING:    'リスクランキング',  // スコア計算結果
+    USAGE:      '使い方',            // 説明シート
+    WORKFLOW:   'ワークフロー',      // 処理フロー図
   },
   MARKET_NAME_PRIME: 'プライム',     // /equities/master の MktNm
   MARKET_CODE_PRIME: '0111',         // /equities/master の Mkt（0111=プライム）
@@ -53,13 +55,19 @@ function onOpen() {
     .addSeparator()
     .addItem('JSON出力（Pages用）',          'exportJson')
     .addItem('収集の進捗リセット',           'resetCollectQueue')
+    .addSeparator()
+    .addItem('使い方シートを作成/更新',      'createUsageSheet')
+    .addItem('ワークフロー図を作成/更新',    'refreshWorkflowDiagram')
     .addToUi();
 }
 
 function setup() {
   const ss = SpreadsheetApp.getActive();
-  Object.values(JQ.SHEETS).forEach(name => { if (!ss.getSheetByName(name)) ss.insertSheet(name); });
-  SpreadsheetApp.getActive().toast('シートを準備しました', '会計リスク', 5);
+  [JQ.SHEETS.UNIVERSE, JQ.SHEETS.STATEMENTS, JQ.SHEETS.RANKING]
+    .forEach(name => { if (!ss.getSheetByName(name)) ss.insertSheet(name); });
+  createUsageSheet();
+  writeWorkflowDiagram_();
+  ss.toast('シート一式（使い方・ワークフロー含む）を準備しました', '会計リスク', 5);
 }
 
 // ============================================================================
@@ -322,4 +330,133 @@ function exportJson() {
   Logger.log('JSON出力: ' + file.getUrl());
   SpreadsheetApp.getActive().toast('JSONをDriveに出力しました', '会計リスク', 5);
   return file.getUrl();
+}
+
+// ============================================================================
+//  使い方シート
+// ============================================================================
+
+function createUsageSheet() {
+  const ss = SpreadsheetApp.getActive();
+  const old = ss.getSheetByName(JQ.SHEETS.USAGE);
+  if (old) ss.deleteSheet(old);
+  const sh = ss.insertSheet(JQ.SHEETS.USAGE, 0);
+  sh.setHiddenGridlines(true);
+  sh.setColumnWidth(1, 760);
+
+  // [テキスト, 種別]  種別: title / h(見出し) / p(本文) / code / note
+  const rows = [
+    ['会計リスク・スクリーナー　使い方', 'title'],
+    ['', 'p'],
+    ['■ これは何？', 'h'],
+    ['J-Quants API（無料・約12週遅延）の決算データから「利益の質」を評価し、会計リスク（利益操作・急悪化）の兆候がある東証プライム銘柄をランク付けするツール。投資助言ではありません。', 'p'],
+    ['', 'p'],
+    ['■ 事前準備（初回のみ）', 'h'],
+    ['1. J-Quants（https://jpx-jquants.com/）に無料登録', 'p'],
+    ['2. ダッシュボードで APIキー を発行（V2はAPIキー方式・有効期限なし）', 'p'],
+    ['3. スクリプトエディタ → ⚙ プロジェクトの設定 → スクリプトプロパティ に登録:', 'p'],
+    ['JQUANTS_API_KEY = 発行したAPIキー', 'code'],
+    ['', 'p'],
+    ['■ 使い方（上部メニュー「会計リスク」）', 'h'],
+    ['① プライム銘柄を取得 … /equities/master からプライム銘柄を「銘柄マスタ」へ', 'p'],
+    ['② 財務データを収集/続行 … 各銘柄の決算を /fins/summary から「財務データ」へ（時間分割で自動再開）', 'p'],
+    ['③ リスクスコアを計算 … 通期(FY)決算から会計リスク偏差値を算出し「リスクランキング」へ', 'p'],
+    ['JSON出力 … 公開ページ用 accounting_risk_prime.json を Drive に出力', 'p'],
+    ['', 'p'],
+    ['■ シートの説明', 'h'],
+    ['銘柄マスタ … 対象のプライム銘柄一覧（コード・企業名・業種・市場）', 'p'],
+    ['財務データ … 収集した決算の生データ（重複防止つき）', 'p'],
+    ['リスクランキング … スコア計算結果。会計リスクが高い順', 'p'],
+    ['', 'p'],
+    ['■ 指標の見方', 'h'],
+    ['アクルーアル比率 =(当期純利益−営業CF)/総資産。高いほど利益が現金の裏付けを欠く＝利益操作の代表的赤信号（主指標）', 'p'],
+    ['黒字CF- … 黒字なのに営業CFがマイナス（⚠）', 'p'],
+    ['営業益率変化 … 前期比の営業利益率の増減', 'p'],
+    ['自己資本比率 … 純資産 / 総資産', 'p'],
+    ['特別損益依存 =(経常利益−純利益)/売上。特別項目での利益調整の度合い', 'p'],
+    ['', 'p'],
+    ['■ 注意', 'h'],
+    ['・無料プランは約12週遅延（決算分析用途のため実用上問題なし）', 'note'],
+    ['・四半期は営業CF未開示が多いため通期(FY)を主対象にしています', 'note'],
+    ['・本ツールはスクリーニング／監査教育目的。投資判断を保証しません', 'note'],
+  ];
+
+  sh.getRange(1, 1, rows.length, 1).setValues(rows.map(r => [r[0]]));
+  rows.forEach((r, i) => {
+    const cell = sh.getRange(i + 1, 1);
+    if (r[1] === 'title') {
+      cell.setFontSize(16).setFontWeight('bold').setFontColor('#ffffff').setBackground('#1a1e3a');
+      sh.setRowHeight(i + 1, 40);
+    } else if (r[1] === 'h') {
+      cell.setFontSize(12).setFontWeight('bold').setFontColor('#1a3c6e').setBackground('#e7effb');
+      sh.setRowHeight(i + 1, 26);
+    } else if (r[1] === 'code') {
+      cell.setFontFamily('Consolas').setBackground('#f2f2f2').setFontColor('#b3261e');
+    } else if (r[1] === 'note') {
+      cell.setFontColor('#666666').setWrap(true);
+    } else {
+      cell.setWrap(true);
+    }
+  });
+  sh.getRange(1, 1, rows.length, 1).setVerticalAlignment('middle');
+  ss.setActiveSheet(sh);
+  return sh;
+}
+
+// ============================================================================
+//  ワークフロー図シート
+// ============================================================================
+
+function refreshWorkflowDiagram() { writeWorkflowDiagram_(); }
+
+function writeWorkflowDiagram_() {
+  const ss = SpreadsheetApp.getActive();
+  const old = ss.getSheetByName(JQ.SHEETS.WORKFLOW);
+  if (old) ss.deleteSheet(old);
+  const sh = ss.insertSheet(JQ.SHEETS.WORKFLOW, 1);
+  sh.setHiddenGridlines(true);
+  sh.setColumnWidth(1, 430);
+  sh.setColumnWidth(2, 20);
+  sh.setColumnWidth(3, 220);
+
+  let r = 1;
+  const box = (text, ref, bg, fg) => {
+    sh.getRange(r, 1).setValue(text)
+      .setBackground(bg).setFontColor(fg || '#000000').setWrap(true)
+      .setVerticalAlignment('middle').setHorizontalAlignment('left')
+      .setBorder(true, true, true, true, false, false, '#888888', SpreadsheetApp.BorderStyle.SOLID);
+    if (ref) sh.getRange(r, 3).setValue(ref).setFontColor('#555555').setFontSize(9)
+      .setVerticalAlignment('middle').setWrap(true);
+    sh.setRowHeight(r, 46);
+    r++;
+  };
+  const arrow = () => {
+    sh.getRange(r, 1).setValue('▼').setHorizontalAlignment('center')
+      .setFontColor('#888888').setFontWeight('bold');
+    sh.setRowHeight(r, 22);
+    r++;
+  };
+
+  sh.getRange(r, 1, 1, 3).merge().setValue('会計リスク・スクリーナー　ワークフロー')
+    .setFontSize(14).setFontWeight('bold').setFontColor('#ffffff').setBackground('#1a1e3a')
+    .setHorizontalAlignment('center').setVerticalAlignment('middle');
+  sh.setRowHeight(r, 44); r++;
+  sh.setRowHeight(r, 10); r++;
+
+  box('事前準備：J-Quantsに登録 → APIキー発行 → スクリプトプロパティ JQUANTS_API_KEY を設定',
+      'スクリプトプロパティ', '#fff3cd', '#5c4a00');
+  arrow();
+  box('① プライム銘柄を取得\n/equities/master（Mkt=0111）から抽出', '→ 銘柄マスタ シート', '#dce9f8', '#1a3c6e');
+  arrow();
+  box('② 財務データを収集/続行\n各銘柄の /fins/summary を取得（時間分割・90秒後自動再開・重複防止）', '→ 財務データ シート', '#dce9f8', '#1a3c6e');
+  arrow();
+  box('③ リスクスコアを計算\n通期(FY)決算からアクルーアル比率を主軸に会計リスク偏差値を算出', '→ リスクランキング シート', '#d9ead3', '#1a4a1a');
+  arrow();
+  box('JSON出力\naccounting_risk_prime.json を生成', '→ Google Drive', '#d9ead3', '#1a4a1a');
+  arrow();
+  box('GitHub Pages で公開\nindex.html が JSON を読み込み、ランキングを表示', '→ 公開ページ', '#e8e8e8', '#333333');
+
+  sh.getRange(1, 1, r - 1, 3).setVerticalAlignment('middle');
+  ss.setActiveSheet(sh);
+  return sh;
 }
