@@ -292,6 +292,23 @@ function applyRiskColorScale_(rank) {
   rank.setConditionalFormatRules([rule]);
 }
 
+// 指標の内訳から「なぜ会計リスクが高いか」を日本語で説明する
+function riskComment_(r) {
+  const reasons = [];
+  if (r.accruals != null && r.accruals >= 0.10)
+    reasons.push('利益に対し営業CFの裏付けが弱い（アクルーアル ' + fmt_(r.accruals, 3) + '）');
+  else if (r.accruals != null && r.accruals >= 0.05)
+    reasons.push('アクルーアルがやや高め（' + fmt_(r.accruals, 3) + '）');
+  if (r.flagCF) reasons.push('黒字だが営業CFがマイナス（利益が現金化していない）');
+  if (r.opMarginChg != null && r.opMarginChg <= -0.05) reasons.push('営業利益率が前期から大きく悪化');
+  if (r.equityRatio != null && r.equityRatio < 0.20) reasons.push('自己資本比率が低く財務体質が脆弱');
+  if (r.specialDep != null && Math.abs(r.specialDep) > 0.03) reasons.push('経常利益と純利益の乖離が大きい（特別損益の影響大）');
+
+  const level = r.risk == null ? '' : r.risk >= 65 ? '【高リスク】' : r.risk >= 52 ? '【中リスク】' : '【低リスク】';
+  if (reasons.length === 0) return level + '目立った会計リスクの兆候は少ない';
+  return level + reasons.join('、') + '。';
+}
+
 // ヘッダ色＋行縞（バンディング）でシートを装飾。headerColor=濃色, altColor=淡色の縞
 function styleSheet_(sheet, numCols, headerColor, altColor) {
   if (!sheet || sheet.getLastRow() < 1 || numCols < 1) return;
@@ -383,19 +400,22 @@ function computeRiskScores() {
     fmt_(r.accruals, 3), r.flagCF ? '⚠' : '',
     fmt_(r.opMarginChg, 3), fmt_(r.equityRatio, 3), fmt_(r.specialDep, 3), r.disclosed,
     priceMap[r.code] != null ? priceMap[r.code] : '',
+    riskComment_(r),
   ]);
 
   const rank = ss.getSheetByName(JQ.SHEETS.RANKING);
   rank.clearContents();
-  rank.getRange(1, 1, 1, 11).setValues([[
+  rank.getRange(1, 1, 1, 12).setValues([[
     'コード', '企業名', '業種', '会計リスク',
-    'アクルーアル', '黒字CF-', '営業益率変化', '自己資本比率', '特別損益依存', '最新開示日', '株価']]);
-  if (out.length) rank.getRange(2, 1, out.length, 11).setValues(out);
+    'アクルーアル', '黒字CF-', '営業益率変化', '自己資本比率', '特別損益依存', '最新開示日', '株価', '解説']]);
+  if (out.length) rank.getRange(2, 1, out.length, 12).setValues(out);
   rank.setFrozenRows(1);
-  styleSheet_(rank, 11, '#3a1530', '#f7ecf3');
+  styleSheet_(rank, 12, '#3a1530', '#f7ecf3');
   if (rank.getLastRow() > 1) rank.getRange(2, 1, rank.getLastRow() - 1, 1).setHorizontalAlignment('right');  // コード列を右寄せ
-  autoFit_(rank, 11);
-  applyRiskColorScale_(rank);   // 会計リスク列にカラースケール（高=赤 / 低=緑）
+  autoFit_(rank, 11);                 // 11列目まで内容にフィット
+  rank.setColumnWidth(12, 460);       // 解説列は固定幅＋折返し
+  if (rank.getLastRow() > 1) rank.getRange(2, 12, rank.getLastRow() - 1, 1).setWrap(true);
+  applyRiskColorScale_(rank);         // 会計リスク列にカラースケール（高=赤 / 低=緑）
   rank.setTabColor('#e0567a');
   Logger.log('リスク計算完了: ' + out.length + '社 / 株価取得 ' + Object.keys(priceMap).length + '件');
   SpreadsheetApp.getActive().toast(out.length + '社をランク付けしました', '会計リスク', 5);
@@ -413,7 +433,7 @@ function exportJson() {
   if (!rank || rank.getLastRow() < 2) throw new Error('先に「③ リスクスコアを計算」を実行してください');
 
   const header = rank.getRange(1, 1, 1, rank.getLastColumn()).getValues()[0];
-  const keys   = ['code', 'name', 'sector', 'risk', 'accruals', 'cfFlag', 'opMarginChg', 'equityRatio', 'specialDep', 'disclosed', 'price'];
+  const keys   = ['code', 'name', 'sector', 'risk', 'accruals', 'cfFlag', 'opMarginChg', 'equityRatio', 'specialDep', 'disclosed', 'price', 'comment'];
   const data   = rank.getRange(2, 1, rank.getLastRow() - 1, header.length).getValues()
     .map(r => Object.fromEntries(keys.map((k, i) => [k, r[i]])));
 

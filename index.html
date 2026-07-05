@@ -36,6 +36,7 @@
   .code { color:var(--mut); font-size:11px; }
   .note { color:var(--mut); font-size:11px; margin-top:18px; line-height:1.6; }
   .pos { color:var(--hi); } .neg { color:var(--lo); }
+  td.cmt { white-space:normal; min-width:300px; max-width:440px; color:#c9d2f0; font-size:12px; line-height:1.5; }
 </style>
 </head>
 <body>
@@ -64,6 +65,7 @@
       <th data-k="equityRatio">自己資本比率</th>
       <th data-k="specialDep">特別損益依存</th>
       <th class="l" data-k="disclosed">最新開示</th>
+      <th class="l" data-k="comment">解説</th>
     </tr></thead>
     <tbody id="rows"></tbody>
   </table>
@@ -84,11 +86,11 @@
 const MOCK = {
   updated: new Date().toISOString(), market: 'プライム',
   items: [
-    { code:'9999', name:'（サンプル）アクルーアル商事', sector:'卸売業', risk:74.2, price:1234, accruals:0.182, cfFlag:'⚠', opMarginChg:-0.061, equityRatio:0.18, specialDep:0.044, disclosed:'2026-02-14' },
-    { code:'8888', name:'（サンプル）キャッシュ乖離製作所', sector:'機械', risk:66.8, price:3820, accruals:0.121, cfFlag:'⚠', opMarginChg:-0.012, equityRatio:0.33, specialDep:0.019, disclosed:'2026-05-10' },
-    { code:'7777', name:'（サンプル）マージン急変電機', sector:'電気機器', risk:58.3, price:958, accruals:0.061, cfFlag:'', opMarginChg:-0.058, equityRatio:0.41, specialDep:0.008, disclosed:'2026-04-28' },
-    { code:'6666', name:'（サンプル）平常運転サービス', sector:'情報・通信業', risk:49.1, price:2145, accruals:-0.004, cfFlag:'', opMarginChg:0.006, equityRatio:0.55, specialDep:0.002, disclosed:'2026-05-12' },
-    { code:'5555', name:'（サンプル）優良キャッシュ食品', sector:'食料品', risk:41.7, price:5600, accruals:-0.052, cfFlag:'', opMarginChg:0.014, equityRatio:0.68, specialDep:0.001, disclosed:'2026-03-30' },
+    { code:'9999', name:'（サンプル）アクルーアル商事', sector:'卸売業', risk:74.2, price:1234, accruals:0.182, cfFlag:'⚠', opMarginChg:-0.061, equityRatio:0.18, specialDep:0.044, disclosed:'2026-02-14', comment:'【高リスク】利益に対し営業CFの裏付けが弱い（アクルーアル 0.182）、黒字だが営業CFがマイナス（利益が現金化していない）、営業利益率が前期から大きく悪化、自己資本比率が低く財務体質が脆弱。' },
+    { code:'8888', name:'（サンプル）キャッシュ乖離製作所', sector:'機械', risk:66.8, price:3820, accruals:0.121, cfFlag:'⚠', opMarginChg:-0.012, equityRatio:0.33, specialDep:0.019, disclosed:'2026-05-10', comment:'【高リスク】利益に対し営業CFの裏付けが弱い（アクルーアル 0.121）、黒字だが営業CFがマイナス（利益が現金化していない）。' },
+    { code:'7777', name:'（サンプル）マージン急変電機', sector:'電気機器', risk:58.3, price:958, accruals:0.061, cfFlag:'', opMarginChg:-0.058, equityRatio:0.41, specialDep:0.008, disclosed:'2026-04-28', comment:'【中リスク】アクルーアルがやや高め（0.061）、営業利益率が前期から大きく悪化。' },
+    { code:'6666', name:'（サンプル）平常運転サービス', sector:'情報・通信業', risk:49.1, price:2145, accruals:-0.004, cfFlag:'', opMarginChg:0.006, equityRatio:0.55, specialDep:0.002, disclosed:'2026-05-12', comment:'【低リスク】目立った会計リスクの兆候は少ない' },
+    { code:'5555', name:'（サンプル）優良キャッシュ食品', sector:'食料品', risk:41.7, price:5600, accruals:-0.052, cfFlag:'', opMarginChg:0.014, equityRatio:0.68, specialDep:0.001, disclosed:'2026-03-30', comment:'【低リスク】目立った会計リスクの兆候は少ない' },
   ]
 };
 
@@ -126,6 +128,7 @@ function render(){
       <td>${fnum(r.equityRatio)}</td>
       <td>${fnum(r.specialDep)}</td>
       <td class="l">${r.disclosed||''}</td>
+      <td class="l cmt">${r.comment||''}</td>
     </tr>`).join('');
   document.getElementById('meta').textContent = `${rows.length}社表示`;
 }
