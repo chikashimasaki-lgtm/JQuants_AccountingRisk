@@ -243,6 +243,14 @@ function to4_(code) {
   return (c.length === 5 && c.slice(-1) === '0') ? c.slice(0, 4) : c;
 }
 
+// 開示日（YYYY-MM-DD 等）から現在までの経過月数。無効なら Infinity。
+function monthsSince_(dateStr) {
+  if (!dateStr) return Infinity;
+  const d = new Date(String(dateStr).replace(/\//g, '-'));
+  if (isNaN(d.getTime())) return Infinity;
+  return (Date.now() - d.getTime()) / (1000 * 60 * 60 * 24 * 30.44);
+}
+
 // 列幅を「データまたはヘッダの内容の最大幅」に調整する。
 // autoResizeColumns は計測が反映されず不安定なことがあるため、
 // ヘッダ+データの表示文字数（全角=2, 半角=1）から幅を直接算出して設定する。
@@ -303,8 +311,15 @@ function applyRiskColorScale_(rank) {
   rank.setConditionalFormatRules([rule]);
 }
 
-// 指標の内訳から「なぜ会計リスクが高いか」を日本語で説明する
-function riskComment_(r) {
+// リスク区分（解説の左列に表示）
+function riskLevel_(r) {
+  if (!r.hasData || r.risk == null) return 'データなし';
+  if (r.stale) return '参考度低（データ古）';
+  return r.risk >= 65 ? '【高リスク】' : r.risk >= 52 ? '【中リスク】' : '【低リスク】';
+}
+
+// リスク要因（箇条書きの各項目）
+function riskReasons_(r) {
   const reasons = [];
   if (r.accruals != null && r.accruals >= 0.10)
     reasons.push('利益に対し営業CFの裏付けが弱い（アクルーアル ' + fmt_(r.accruals, 3) + '）');
@@ -314,10 +329,16 @@ function riskComment_(r) {
   if (r.opMarginChg != null && r.opMarginChg <= -0.05) reasons.push('営業利益率が前期から大きく悪化');
   if (r.equityRatio != null && r.equityRatio < 0.20) reasons.push('自己資本比率が低く財務体質が脆弱');
   if (r.specialDep != null && Math.abs(r.specialDep) > 0.03) reasons.push('経常利益と純利益の乖離が大きい（特別損益の影響大）');
+  return reasons;
+}
 
-  const level = r.risk == null ? '' : r.risk >= 65 ? '【高リスク】' : r.risk >= 52 ? '【中リスク】' : '【低リスク】';
-  if (reasons.length === 0) return level + '目立った会計リスクの兆候は少ない';
-  return level + reasons.join('、') + '。';
+// 解説（箇条書き。区分は別列に出すのでここには含めない）
+function riskComment_(r) {
+  if (!r.hasData || r.risk == null) return '決算(FY)データ未取得';
+  const reasons = riskReasons_(r);
+  let body = reasons.length === 0 ? '・目立った会計リスクの兆候は少ない' : reasons.map(x => '・' + x).join('\n');
+  if (r.stale) body = '※最新開示が古く参考度は低い（' + r.disclosed + '）\n' + body;
+  return body;
 }
 
 // ヘッダ色＋行縞（バンディング）でシートを装飾。headerColor=濃色, altColor=淡色の縞
@@ -345,14 +366,14 @@ function computeRiskScores() {
   const st = ss.getSheetByName(JQ.SHEETS.STATEMENTS);
   if (!st || st.getLastRow() < 2) throw new Error('先に「② 財務データを収集」を実行してください');
 
-  const uni  = ss.getSheetByName(JQ.SHEETS.UNIVERSE);
-  const meta = new Map();
-  if (uni && uni.getLastRow() > 1) {
-    uni.getRange(2, 1, uni.getLastRow() - 1, 3).getValues()
-      .forEach(r => meta.set(to4_(r[0]), { name: r[1], sector: r[2] }));
-  }
+  const uni = ss.getSheetByName(JQ.SHEETS.UNIVERSE);
+  if (!uni || uni.getLastRow() < 2) throw new Error('先に「① プライム銘柄を取得」を実行してください');
 
-  // コードごとに FY 決算を開示日昇順で並べる
+  // 全プライム銘柄（マスタ）を母集団にする ＝ 全銘柄を出力対象にする
+  const universe = uni.getRange(2, 1, uni.getLastRow() - 1, 3).getValues()
+    .filter(r => r[0]).map(r => ({ code: to4_(r[0]), name: r[1], sector: r[2] }));
+
+  // コードごとに FY 決算を開示日昇順で集計
   const H = HEADER_STATEMENTS_();
   const idx = Object.fromEntries(H.map((h, i) => [h, i]));
   const byCode = new Map();
@@ -362,47 +383,54 @@ function computeRiskScores() {
     (byCode.get(code) || byCode.set(code, []).get(code)).push(r);
   });
 
-  const recs = [];
+  // コードごとの指標を計算
+  const metricByCode = new Map();
   byCode.forEach((rows, code) => {
     rows.sort((a, b) => String(a[idx['開示日']]).localeCompare(String(b[idx['開示日']])));
     const cur  = rows[rows.length - 1];
     const prev = rows.length >= 2 ? rows[rows.length - 2] : null;
-
     const g = (r, k) => r ? r[idx[k]] : null;
     const profit = g(cur, '当期純利益'), cfo = g(cur, '営業CF'), assets = g(cur, '総資産');
     const sales  = g(cur, '売上高'),     op  = g(cur, '営業利益'), ord = g(cur, '経常利益'), eq = g(cur, '純資産');
-
-    // 主指標: アクルーアル比率 (純利益 − 営業CF) / 総資産
     const accruals = (profit != null && cfo != null && assets) ? (profit - cfo) / assets : null;
-
-    // 補助フラグ
-    const flagCF   = (profit != null && cfo != null && profit > 0 && cfo < 0) ? 1 : 0; // 黒字なのに営業CFマイナス
+    const flagCF   = (profit != null && cfo != null && profit > 0 && cfo < 0) ? 1 : 0;
     const opMargin = (op != null && sales) ? op / sales : null;
     const opMarginPrev = (g(prev, '営業利益') != null && g(prev, '売上高')) ? g(prev, '営業利益') / g(prev, '売上高') : null;
     const opMarginChg  = (opMargin != null && opMarginPrev != null) ? opMargin - opMarginPrev : null;
     const equityRatio  = (eq != null && assets) ? eq / assets : null;
-    const specialDep   = (ord != null && profit != null && sales) ? (ord - profit) / sales : null; // 特別損益依存
-
-    recs.push({ code, name: (meta.get(code) || {}).name || '', sector: (meta.get(code) || {}).sector || '',
-      disclosed: cur[idx['開示日']], accruals, flagCF, opMarginChg, equityRatio, specialDep });
+    const specialDep   = (ord != null && profit != null && sales) ? (ord - profit) / sales : null;
+    metricByCode.set(code, { disclosed: cur[idx['開示日']], accruals, flagCF, opMarginChg, equityRatio, specialDep });
   });
 
-  // アクルーアルを母集団で偏差値化（高いほど利益の質が低い＝リスク）
-  const vals = recs.map(r => r.accruals).filter(v => v != null);
+  // 全銘柄に指標を結合（決算データが無い銘柄は空のまま出力する）
+  const STALE_MONTHS = 15;  // 最新FY開示がこれより古い銘柄は「参考度低（データ古い）」扱い
+  const recs = universe.map(u => {
+    const m = metricByCode.get(u.code);
+    const rec = Object.assign(
+      { code: u.code, name: u.name, sector: u.sector, hasData: false,
+        disclosed: '', accruals: null, flagCF: 0, opMarginChg: null, equityRatio: null, specialDep: null },
+      m ? Object.assign({ hasData: true }, m) : {});
+    rec.stale = rec.hasData && monthsSince_(rec.disclosed) > STALE_MONTHS;
+    return rec;
+  });
+
+  // アクルーアルを母集団で偏差値化（鮮度の新しいデータのみを母集団にする）
+  const vals = recs.filter(r => r.accruals != null && !r.stale).map(r => r.accruals);
   const mean = vals.reduce((a, b) => a + b, 0) / (vals.length || 1);
   const sd   = Math.sqrt(vals.reduce((a, b) => a + (b - mean) ** 2, 0) / (vals.length || 1)) || 1;
 
   recs.forEach(r => {
-    const dev = r.accruals != null ? 50 + 10 * ((r.accruals - mean) / sd) : null; // 会計リスク偏差値
-    // フラグで加点（説明可能な範囲で軽く）
+    const dev = r.accruals != null ? 50 + 10 * ((r.accruals - mean) / sd) : null;
     let bonus = 0;
     if (r.flagCF) bonus += 8;
-    if (r.opMarginChg != null && r.opMarginChg < -0.05) bonus += 4;   // 営業利益率5pt超悪化
-    if (r.equityRatio != null && r.equityRatio < 0.2)   bonus += 3;   // 自己資本比率20%未満
-    r.risk = dev != null ? Math.round((dev + bonus) * 10) / 10 : (r.flagCF ? 60 + bonus : null);
+    if (r.opMarginChg != null && r.opMarginChg < -0.05) bonus += 4;
+    if (r.equityRatio != null && r.equityRatio < 0.2)   bonus += 3;
+    r.risk = dev != null ? Math.round((dev + bonus) * 10) / 10 : (r.hasData && r.flagCF ? 60 + bonus : null);
   });
 
-  recs.sort((a, b) => (b.risk ?? -1) - (a.risk ?? -1));
+  // 並び順: 新しい決算あり → 古い決算(参考度低) → データ無し、各群でリスク降順
+  const grp = r => (!r.hasData || r.risk == null) ? 2 : (r.stale ? 1 : 0);
+  recs.sort((a, b) => grp(a) - grp(b) || (b.risk ?? -Infinity) - (a.risk ?? -Infinity));
 
   const priceMap = fetchPricesJP_(recs.map(r => r.code));  // 現在株価（Yahoo）
 
@@ -412,15 +440,15 @@ function computeRiskScores() {
     fmt_(r.accruals, 3), r.flagCF ? '⚠' : '',
     fmt_(r.opMarginChg, 3), fmt_(r.equityRatio, 3), fmt_(r.specialDep, 3), r.disclosed,
     priceMap[r.code] != null ? priceMap[r.code] : '',
-    riskComment_(r),
+    riskLevel_(r), riskComment_(r),
   ]);
 
   const rank = ss.getSheetByName(JQ.SHEETS.RANKING);
-  rank.clear();   // 内容＋書式をクリア（列順変更で残る古い日付書式などを除去）
-  rank.getRange(1, 1, 1, 13).setValues([[
+  rank.clear();   // 内容＋書式をクリア（列順変更で残る古い書式を除去）
+  rank.getRange(1, 1, 1, 14).setValues([[
     '順位', 'コード', '企業名', '業種', '会計リスク',
-    'アクルーアル', '黒字CF-', '営業益率変化', '自己資本比率', '特別損益依存', '最新開示日', '株価', '解説']]);
-  if (out.length) rank.getRange(2, 1, out.length, 13).setValues(out);
+    'アクルーアル', '黒字CF-', '営業益率変化', '自己資本比率', '特別損益依存', '最新開示日', '株価', 'リスク区分', '解説']]);
+  if (out.length) rank.getRange(2, 1, out.length, 14).setValues(out);
   rank.setFrozenRows(1);
   if (rank.getLastRow() > 1) {
     const n = rank.getLastRow() - 1;
@@ -431,18 +459,21 @@ function computeRiskScores() {
     rank.getRange(2, 11, n, 1).setNumberFormat('@');       // 最新開示日（文字列として表示）
     rank.getRange(2, 12, n, 1).setNumberFormat('#,##0');   // 株価は3桁カンマ区切り
   }
-  styleSheet_(rank, 13, '#3a1530', '#f7ecf3');
+  styleSheet_(rank, 14, '#3a1530', '#f7ecf3');
   if (rank.getLastRow() > 1) {
-    rank.getRange(2, 1, rank.getLastRow() - 1, 1).setHorizontalAlignment('center');  // 順位を中央
-    rank.getRange(2, 2, rank.getLastRow() - 1, 1).setHorizontalAlignment('right');   // コードを右寄せ
+    const n = rank.getLastRow() - 1;
+    rank.getRange(2, 1,  n, 1).setHorizontalAlignment('center');  // 順位を中央
+    rank.getRange(2, 2,  n, 1).setHorizontalAlignment('right');   // コードを右寄せ
+    rank.getRange(2, 13, n, 1).setHorizontalAlignment('center');  // リスク区分を中央
+    rank.getRange(2, 14, n, 1).setWrap(true);                     // 解説は折返し（箇条書き改行）
   }
-  autoFit_(rank, 12);                 // 12列目まで内容にフィット
-  rank.setColumnWidth(13, 460);       // 解説列は固定幅＋折返し
-  if (rank.getLastRow() > 1) rank.getRange(2, 13, rank.getLastRow() - 1, 1).setWrap(true);
+  autoFit_(rank, 13);                 // 13列目まで内容にフィット
+  rank.setColumnWidth(14, 460);       // 解説列は固定幅＋折返し
   applyRiskColorScale_(rank);         // 会計リスク列にカラースケール（高=赤 / 低=緑）
   rank.setTabColor('#e0567a');
-  Logger.log('リスク計算完了: ' + out.length + '社 / 株価取得 ' + Object.keys(priceMap).length + '件');
-  SpreadsheetApp.getActive().toast(out.length + '社をランク付けしました', '会計リスク', 5);
+  const withData = recs.filter(r => r.hasData).length;
+  Logger.log('リスク計算完了: 全' + out.length + '銘柄（決算あり ' + withData + ' / 株価取得 ' + Object.keys(priceMap).length + '）');
+  SpreadsheetApp.getActive().toast('全' + out.length + '銘柄を出力（決算あり ' + withData + '）', '会計リスク', 6);
 }
 
 function fmt_(v, d) { return v == null ? '' : Math.round(v * 10 ** d) / 10 ** d; }
@@ -457,7 +488,7 @@ function exportJson() {
   if (!rank || rank.getLastRow() < 2) throw new Error('先に「③ リスクスコアを計算」を実行してください');
 
   const header = rank.getRange(1, 1, 1, rank.getLastColumn()).getValues()[0];
-  const keys   = ['rank', 'code', 'name', 'sector', 'risk', 'accruals', 'cfFlag', 'opMarginChg', 'equityRatio', 'specialDep', 'disclosed', 'price', 'comment'];
+  const keys   = ['rank', 'code', 'name', 'sector', 'risk', 'accruals', 'cfFlag', 'opMarginChg', 'equityRatio', 'specialDep', 'disclosed', 'price', 'level', 'comment'];
   const data   = rank.getRange(2, 1, rank.getLastRow() - 1, header.length).getValues()
     .map(r => Object.fromEntries(keys.map((k, i) => [k, r[i]])));
 
