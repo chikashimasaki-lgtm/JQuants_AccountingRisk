@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>東証プライム 会計リスク・スクリーナー</title>
+<style>
+  :root { --bg:#0f1226; --card:#1a1e3a; --line:#2b3160; --fg:#e8eaf5; --mut:#9aa3c7;
+          --hi:#ff5d6c; --mid:#ffb454; --lo:#3ecf8e; --accent:#6ea8fe; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:system-ui,-apple-system,"Segoe UI",sans-serif;
+         background:var(--bg); color:#e8eaf5; }
+  header { padding:18px 20px; background:linear-gradient(90deg,#151a3a,#0f1226);
+           border-bottom:1px solid var(--line); }
+  h1 { margin:0; font-size:18px; }
+  .sub { color:var(--mut); font-size:12px; margin-top:4px; }
+  .wrap { max-width:1100px; margin:0 auto; padding:16px 20px 60px; }
+  .controls { display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin:14px 0; }
+  input, select { background:var(--card); color:#e8eaf5; border:1px solid var(--line);
+                  border-radius:8px; padding:8px 10px; font-size:13px; }
+  input[type=search] { min-width:200px; }
+  .meta { color:var(--mut); font-size:12px; margin-left:auto; }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th, td { padding:9px 8px; text-align:right; border-bottom:1px solid var(--line); white-space:nowrap; }
+  th { position:sticky; top:0; background:#141838; color:var(--mut); cursor:pointer; user-select:none; font-weight:600; }
+  th.l, td.l { text-align:left; }
+  th:hover { color:#e8eaf5; }
+  tbody tr:hover { background:#181d40; }
+  .risk { font-weight:700; padding:2px 8px; border-radius:999px; display:inline-block; min-width:46px; }
+  .r-hi { background:rgba(255,93,108,.16); color:var(--hi); }
+  .r-mid{ background:rgba(255,180,84,.15); color:var(--mid); }
+  .r-lo { background:rgba(62,207,142,.14); color:var(--lo); }
+  .badge { font-size:11px; color:var(--hi); border:1px solid rgba(255,93,108,.4);
+           border-radius:6px; padding:1px 6px; margin-left:4px; }
+  .name { color:#e8eaf5; }
+  .code { color:var(--mut); font-size:11px; }
+  .note { color:var(--mut); font-size:11px; margin-top:18px; line-height:1.6; }
+  .pos { color:var(--hi); } .neg { color:var(--lo); }
+</style>
+</head>
+<body>
+<header>
+  <h1>東証プライム 会計リスク・スクリーナー</h1>
+  <div class="sub">J-Quants の決算データから「利益の質」を評価し、会計リスクの兆候をランク付け（投資助言ではありません）</div>
+</header>
+
+<div class="wrap">
+  <div class="controls">
+    <input type="search" id="q" placeholder="企業名・コードで検索" />
+    <select id="sector"><option value="">全業種</option></select>
+    <select id="onlyFlag"><option value="">全銘柄</option><option value="1">⚠フラグありのみ</option></select>
+    <span class="meta" id="meta"></span>
+  </div>
+
+  <table>
+    <thead><tr>
+      <th class="l" data-k="rank">#</th>
+      <th class="l" data-k="name">企業名</th>
+      <th class="l" data-k="sector">業種</th>
+      <th data-k="risk">会計リスク▼</th>
+      <th data-k="accruals">アクルーアル</th>
+      <th data-k="opMarginChg">営業益率変化</th>
+      <th data-k="equityRatio">自己資本比率</th>
+      <th data-k="specialDep">特別損益依存</th>
+      <th class="l" data-k="disclosed">最新開示</th>
+    </tr></thead>
+    <tbody id="rows"></tbody>
+  </table>
+
+  <div class="note">
+    <b>指標の見方</b>：
+    <b>アクルーアル</b>=(当期純利益−営業CF)/総資産。高いほど利益が現金の裏付けを欠く（利益操作の代表的赤信号）。
+    <b>⚠</b>=黒字なのに営業CFがマイナス。
+    <b>営業益率変化</b>=前期比の営業利益率の増減。
+    <b>特別損益依存</b>=(経常利益−純利益)/売上。<br>
+    ※ 無料プランは約12週遅延。本ツールはスクリーニング／監査教育目的であり、投資判断を保証するものではありません。
+  </div>
+</div>
+
+<script>
+// 実データは GAS「JSON出力」で作る accounting_risk_prime.json を読む。
+// 無ければ下のモックで表示（登録前でも画面確認できるように）。
+const MOCK = {
+  updated: new Date().toISOString(), market: 'プライム',
+  items: [
+    { code:'9999', name:'（サンプル）アクルーアル商事', sector:'卸売業', risk:74.2, accruals:0.182, cfFlag:'⚠', opMarginChg:-0.061, equityRatio:0.18, specialDep:0.044, disclosed:'2026-02-14' },
+    { code:'8888', name:'（サンプル）キャッシュ乖離製作所', sector:'機械', risk:66.8, accruals:0.121, cfFlag:'⚠', opMarginChg:-0.012, equityRatio:0.33, specialDep:0.019, disclosed:'2026-05-10' },
+    { code:'7777', name:'（サンプル）マージン急変電機', sector:'電気機器', risk:58.3, accruals:0.061, cfFlag:'', opMarginChg:-0.058, equityRatio:0.41, specialDep:0.008, disclosed:'2026-04-28' },
+    { code:'6666', name:'（サンプル）平常運転サービス', sector:'情報・通信業', risk:49.1, accruals:-0.004, cfFlag:'', opMarginChg:0.006, equityRatio:0.55, specialDep:0.002, disclosed:'2026-05-12' },
+    { code:'5555', name:'（サンプル）優良キャッシュ食品', sector:'食料品', risk:41.7, accruals:-0.052, cfFlag:'', opMarginChg:0.014, equityRatio:0.68, specialDep:0.001, disclosed:'2026-03-30' },
+  ]
+};
+
+let DATA = [], sortKey = 'risk', sortAsc = false;
+
+function riskClass(v){ return v>=65?'r-hi':v>=52?'r-mid':'r-lo'; }
+function fnum(v,d=3){ return (v===''||v==null)?'':Number(v).toFixed(d); }
+function signClass(v){ return v>0?'pos':v<0?'neg':''; }
+
+function render(){
+  const q = document.getElementById('q').value.trim();
+  const sec = document.getElementById('sector').value;
+  const onlyFlag = document.getElementById('onlyFlag').value;
+  let rows = DATA.filter(r =>
+    (!q || (r.name+r.code).includes(q)) &&
+    (!sec || r.sector===sec) &&
+    (!onlyFlag || r.cfFlag==='⚠'));
+
+  rows.sort((a,b)=>{
+    let x=a[sortKey], y=b[sortKey];
+    if(typeof x==='string'){ x=x||''; y=y||''; return sortAsc?x.localeCompare(y):y.localeCompare(x); }
+    x=x??-Infinity; y=y??-Infinity; return sortAsc?x-y:y-x;
+  });
+
+  const tb = document.getElementById('rows');
+  tb.innerHTML = rows.map((r,i)=>`
+    <tr>
+      <td class="l">${i+1}</td>
+      <td class="l"><span class="name">${r.name}</span> <span class="code">${r.code}</span></td>
+      <td class="l">${r.sector||''}</td>
+      <td><span class="risk ${riskClass(r.risk)}">${fnum(r.risk,1)}</span>${r.cfFlag?'<span class="badge">CF-</span>':''}</td>
+      <td>${fnum(r.accruals)}</td>
+      <td class="${signClass(r.opMarginChg)}">${fnum(r.opMarginChg)}</td>
+      <td>${fnum(r.equityRatio)}</td>
+      <td>${fnum(r.specialDep)}</td>
+      <td class="l">${r.disclosed||''}</td>
+    </tr>`).join('');
+  document.getElementById('meta').textContent = `${rows.length}社表示`;
+}
+
+function initSectors(){
+  const sel = document.getElementById('sector');
+  [...new Set(DATA.map(r=>r.sector).filter(Boolean))].sort().forEach(s=>{
+    const o=document.createElement('option'); o.value=o.textContent=s; sel.appendChild(o);
+  });
+}
+
+document.querySelectorAll('th').forEach(th=>th.addEventListener('click',()=>{
+  const k=th.dataset.k; if(!k) return;
+  if(sortKey===k) sortAsc=!sortAsc; else { sortKey=k; sortAsc=(k==='name'||k==='sector'); }
+  render();
+}));
+['q','sector','onlyFlag'].forEach(id=>document.getElementById(id).addEventListener('input',render));
+
+fetch('accounting_risk_prime.json').then(r=>r.ok?r.json():Promise.reject())
+  .then(j=>{ DATA=j.items; boot(j); })
+  .catch(()=>{ DATA=MOCK.items; boot(MOCK); document.getElementById('meta').dataset.mock=1; });
+
+function boot(j){
+  initSectors(); render();
+  const badge = j===MOCK ? '（サンプル表示）' : '';
+  document.querySelector('.sub').textContent =
+    `更新: ${new Date(j.updated).toLocaleString('ja-JP')} / 市場: ${j.market} ${badge}`;
+}
+</script>
+</body>
+</html>
