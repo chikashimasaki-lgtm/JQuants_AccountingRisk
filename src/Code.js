@@ -428,12 +428,11 @@ function computeRiskScores() {
     r.risk = dev != null ? Math.round((dev + bonus) * 10) / 10 : (r.hasData && r.flagCF ? 60 + bonus : null);
   });
 
-  // 参考度低（最新FY開示が古い）銘柄は出力しない
-  const shown = recs.filter(r => !r.stale);
+  // 参考度低（古い開示）とデータ無しは出力しない。新しいFY決算がある銘柄のみ。
+  const shown = recs.filter(r => r.hasData && !r.stale && r.risk != null);
 
-  // 並び順: 決算あり（リスク降順）→ データ無しは末尾
-  const grp = r => (!r.hasData || r.risk == null) ? 1 : 0;
-  shown.sort((a, b) => grp(a) - grp(b) || (b.risk ?? -Infinity) - (a.risk ?? -Infinity));
+  // リスク降順
+  shown.sort((a, b) => (b.risk ?? -Infinity) - (a.risk ?? -Infinity));
 
   const priceMap = fetchPricesJP_(shown.map(r => r.code));  // 現在株価（Yahoo）
 
@@ -474,10 +473,10 @@ function computeRiskScores() {
   rank.setColumnWidth(14, 460);       // 解説列は固定幅＋折返し
   applyRiskColorScale_(rank);         // 会計リスク列にカラースケール（高=赤 / 低=緑）
   rank.setTabColor('#e0567a');
-  const withData = shown.filter(r => r.hasData).length;
-  const staleN   = recs.filter(r => r.stale).length;
-  Logger.log('リスク計算完了: 出力 ' + out.length + '銘柄（決算あり ' + withData + ' / 参考度低で除外 ' + staleN + ' / 株価取得 ' + Object.keys(priceMap).length + '）');
-  SpreadsheetApp.getActive().toast(out.length + '銘柄を出力（古い開示 ' + staleN + '件は除外）', '会計リスク', 6);
+  const staleN  = recs.filter(r => r.stale).length;
+  const noDataN = recs.filter(r => !r.hasData || r.risk == null).length;
+  Logger.log('リスク計算完了: 出力 ' + out.length + '銘柄（除外: 古い開示 ' + staleN + ' / データなし ' + noDataN + ' / 株価取得 ' + Object.keys(priceMap).length + '）');
+  SpreadsheetApp.getActive().toast(out.length + '銘柄を出力（除外: 古い開示 ' + staleN + ' / データなし ' + noDataN + '）', '会計リスク', 6);
 }
 
 function fmt_(v, d) { return v == null ? '' : Math.round(v * 10 ** d) / 10 ** d; }
