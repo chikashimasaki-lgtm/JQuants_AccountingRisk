@@ -428,13 +428,16 @@ function computeRiskScores() {
     r.risk = dev != null ? Math.round((dev + bonus) * 10) / 10 : (r.hasData && r.flagCF ? 60 + bonus : null);
   });
 
-  // 並び順: 新しい決算あり → 古い決算(参考度低) → データ無し、各群でリスク降順
-  const grp = r => (!r.hasData || r.risk == null) ? 2 : (r.stale ? 1 : 0);
-  recs.sort((a, b) => grp(a) - grp(b) || (b.risk ?? -Infinity) - (a.risk ?? -Infinity));
+  // 参考度低（最新FY開示が古い）銘柄は出力しない
+  const shown = recs.filter(r => !r.stale);
 
-  const priceMap = fetchPricesJP_(recs.map(r => r.code));  // 現在株価（Yahoo）
+  // 並び順: 決算あり（リスク降順）→ データ無しは末尾
+  const grp = r => (!r.hasData || r.risk == null) ? 1 : 0;
+  shown.sort((a, b) => grp(a) - grp(b) || (b.risk ?? -Infinity) - (a.risk ?? -Infinity));
 
-  const out = recs.map((r, i) => [
+  const priceMap = fetchPricesJP_(shown.map(r => r.code));  // 現在株価（Yahoo）
+
+  const out = shown.map((r, i) => [
     i + 1,                            // 順位（会計リスクの高い順）
     r.code, r.name, r.sector, r.risk,
     fmt_(r.accruals, 3), r.flagCF ? '⚠' : '',
@@ -471,9 +474,10 @@ function computeRiskScores() {
   rank.setColumnWidth(14, 460);       // 解説列は固定幅＋折返し
   applyRiskColorScale_(rank);         // 会計リスク列にカラースケール（高=赤 / 低=緑）
   rank.setTabColor('#e0567a');
-  const withData = recs.filter(r => r.hasData).length;
-  Logger.log('リスク計算完了: 全' + out.length + '銘柄（決算あり ' + withData + ' / 株価取得 ' + Object.keys(priceMap).length + '）');
-  SpreadsheetApp.getActive().toast('全' + out.length + '銘柄を出力（決算あり ' + withData + '）', '会計リスク', 6);
+  const withData = shown.filter(r => r.hasData).length;
+  const staleN   = recs.filter(r => r.stale).length;
+  Logger.log('リスク計算完了: 出力 ' + out.length + '銘柄（決算あり ' + withData + ' / 参考度低で除外 ' + staleN + ' / 株価取得 ' + Object.keys(priceMap).length + '）');
+  SpreadsheetApp.getActive().toast(out.length + '銘柄を出力（古い開示 ' + staleN + '件は除外）', '会計リスク', 6);
 }
 
 function fmt_(v, d) { return v == null ? '' : Math.round(v * 10 ** d) / 10 ** d; }
