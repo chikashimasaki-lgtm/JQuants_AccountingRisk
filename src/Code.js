@@ -123,7 +123,8 @@ function fetchPrimeUniverse() {
   sh.clearContents();
   sh.getRange(1, 1, 1, 4).setValues([['コード', '企業名', '業種', '市場']]);
   if (rows.length) sh.getRange(2, 1, rows.length, 4).setValues(rows);
-  sh.autoResizeColumns(1, 4);  // 列幅をデータ内容に合わせて自動調整
+  sh.getRange(1, 1, sh.getLastRow(), 1).setHorizontalAlignment('right');  // コード列を右寄せ
+  autoFit_(sh, 4);  // 列幅をデータ/ヘッダの最大幅に自動調整
   Logger.log('プライム銘柄: ' + rows.length + '件 / 全上場 ' + info.length + '件');
   SpreadsheetApp.getActive().toast('プライム ' + rows.length + '件を取得', '会計リスク', 5);
 }
@@ -188,7 +189,10 @@ function collectStatements() {
     SpreadsheetApp.getActive().toast('残り ' + queue.length + '銘柄。自動再開します', '会計リスク', 5);
   } else {
     props.deleteProperty('JQ_COLLECT_QUEUE');
-    if (st.getLastColumn() > 0) st.autoResizeColumns(1, st.getLastColumn());  // 列幅を自動調整
+    if (st.getLastColumn() > 0) {
+      st.getRange(1, 1, st.getLastRow(), 1).setHorizontalAlignment('right');  // コード列を右寄せ
+      autoFit_(st, st.getLastColumn());  // 列幅をデータ/ヘッダの最大幅に自動調整
+    }
     Logger.log('収集完了');
     SpreadsheetApp.getActive().toast('財務データ収集が完了しました', '会計リスク', 5);
   }
@@ -233,6 +237,15 @@ function to4_(code) {
   return (c.length === 5 && c.slice(-1) === '0') ? c.slice(0, 4) : c;
 }
 
+// 列幅を「データまたはヘッダの内容の最大幅」に自動調整（内容にフィット＋余白・最小幅を確保）
+function autoFit_(sheet, numCols) {
+  if (!sheet || sheet.getLastRow() < 1 || numCols < 1) return;
+  sheet.autoResizeColumns(1, numCols);   // ヘッダ行を含む全セルの最大幅にフィット
+  for (let c = 1; c <= numCols; c++) {
+    sheet.setColumnWidth(c, Math.max(sheet.getColumnWidth(c) + 12, 60));  // 余白+最小幅
+  }
+}
+
 // ============================================================================
 //  ③ リスクスコア計算（通期FYを対象。最新FYと前期FYを比較）
 // ============================================================================
@@ -246,7 +259,7 @@ function computeRiskScores() {
   const meta = new Map();
   if (uni && uni.getLastRow() > 1) {
     uni.getRange(2, 1, uni.getLastRow() - 1, 3).getValues()
-      .forEach(r => meta.set(String(r[0]), { name: r[1], sector: r[2] }));
+      .forEach(r => meta.set(to4_(r[0]), { name: r[1], sector: r[2] }));
   }
 
   // コードごとに FY 決算を開示日昇順で並べる
@@ -255,7 +268,7 @@ function computeRiskScores() {
   const byCode = new Map();
   st.getRange(2, 1, st.getLastRow() - 1, H.length).getValues().forEach(r => {
     if (r[idx['期種別']] !== 'FY') return;   // 通期のみ
-    const code = String(r[idx['コード']]);
+    const code = to4_(r[idx['コード']]);   // 旧5桁データも4桁へ寄せて名寄せ
     (byCode.get(code) || byCode.set(code, []).get(code)).push(r);
   });
 
@@ -314,7 +327,8 @@ function computeRiskScores() {
     'アクルーアル', '黒字CF-', '営業益率変化', '自己資本比率', '特別損益依存', '最新開示日']]);
   if (out.length) rank.getRange(2, 1, out.length, 10).setValues(out);
   rank.setFrozenRows(1);
-  rank.autoResizeColumns(1, 10);  // 列幅をデータ内容に合わせて自動調整
+  rank.getRange(1, 1, rank.getLastRow(), 1).setHorizontalAlignment('right');  // コード列を右寄せ
+  autoFit_(rank, 10);  // 列幅をデータ/ヘッダの最大幅に自動調整
   Logger.log('リスク計算完了: ' + out.length + '社');
   SpreadsheetApp.getActive().toast(out.length + '社をランク付けしました', '会計リスク', 5);
 }
