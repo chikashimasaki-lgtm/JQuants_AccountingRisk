@@ -113,7 +113,7 @@ function fetchPrimeUniverse() {
   const prime = info.filter(x => x.Mkt === JQ.MARKET_CODE_PRIME || x.MktNm === JQ.MARKET_NAME_PRIME);
 
   const rows = prime.map(x => [
-    String(x.Code),
+    to4_(x.Code),
     x.CoName || '',
     x.S17Nm || x.S33Nm || '',
     x.MktNm || '',
@@ -123,6 +123,7 @@ function fetchPrimeUniverse() {
   sh.clearContents();
   sh.getRange(1, 1, 1, 4).setValues([['コード', '企業名', '業種', '市場']]);
   if (rows.length) sh.getRange(2, 1, rows.length, 4).setValues(rows);
+  sh.autoResizeColumns(1, 4);  // 列幅をデータ内容に合わせて自動調整
   Logger.log('プライム銘柄: ' + rows.length + '件 / 全上場 ' + info.length + '件');
   SpreadsheetApp.getActive().toast('プライム ' + rows.length + '件を取得', '会計リスク', 5);
 }
@@ -187,6 +188,7 @@ function collectStatements() {
     SpreadsheetApp.getActive().toast('残り ' + queue.length + '銘柄。自動再開します', '会計リスク', 5);
   } else {
     props.deleteProperty('JQ_COLLECT_QUEUE');
+    if (st.getLastColumn() > 0) st.autoResizeColumns(1, st.getLastColumn());  // 列幅を自動調整
     Logger.log('収集完了');
     SpreadsheetApp.getActive().toast('財務データ収集が完了しました', '会計リスク', 5);
   }
@@ -211,7 +213,7 @@ function HEADER_STATEMENTS_() {
 
 function rowFromStatement_(s) {
   return [
-    String(s[F.code] || ''), s[F.disclosed] || '', s[F.periodType] || '', s[F.docType] || '',
+    to4_(s[F.code] || ''), s[F.disclosed] || '', s[F.periodType] || '', s[F.docType] || '',
     num_(s[F.netSales]), num_(s[F.opProfit]), num_(s[F.ordProfit]), num_(s[F.profit]),
     num_(s[F.totalAssets]), num_(s[F.equity]), num_(s[F.cfo]), num_(s[F.eps]),
   ];
@@ -222,6 +224,13 @@ function num_(v) {
   if (v === '' || v == null) return null;
   const n = Number(String(v).replace(/,/g, ''));
   return isFinite(n) ? n : null;
+}
+
+// J-Quantsの5桁コード（4桁ティッカー+末尾0）を、見慣れた4桁に正規化する。
+// 例: "72030" → "7203" / "130A0" → "130A"。5桁で末尾0のときのみ落とす。
+function to4_(code) {
+  const c = String(code == null ? '' : code);
+  return (c.length === 5 && c.slice(-1) === '0') ? c.slice(0, 4) : c;
 }
 
 // ============================================================================
@@ -305,6 +314,7 @@ function computeRiskScores() {
     'アクルーアル', '黒字CF-', '営業益率変化', '自己資本比率', '特別損益依存', '最新開示日']]);
   if (out.length) rank.getRange(2, 1, out.length, 10).setValues(out);
   rank.setFrozenRows(1);
+  rank.autoResizeColumns(1, 10);  // 列幅をデータ内容に合わせて自動調整
   Logger.log('リスク計算完了: ' + out.length + '社');
   SpreadsheetApp.getActive().toast(out.length + '社をランク付けしました', '会計リスク', 5);
 }
