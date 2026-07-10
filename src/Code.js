@@ -489,13 +489,6 @@ function exportJson() {
 // ============================================================================
 
 function createUsageSheet() {
-  const ss = SpreadsheetApp.getActive();
-  const old = ss.getSheetByName(JQ.SHEETS.USAGE);
-  if (old) ss.deleteSheet(old);
-  const sh = ss.insertSheet(JQ.SHEETS.USAGE, 0);
-  sh.setHiddenGridlines(true);
-  sh.setColumnWidth(1, 760);
-
   // [テキスト, 種別]  種別: title / h(見出し) / p(本文) / code / note
   const rows = [
     ['会計リスク・スクリーナー　使い方', 'title'],
@@ -533,27 +526,7 @@ function createUsageSheet() {
     ['・本ツールはスクリーニング／監査教育目的。投資判断を保証しません', 'note'],
   ];
 
-  sh.getRange(1, 1, rows.length, 1).setValues(rows.map(r => [r[0]]));
-  rows.forEach((r, i) => {
-    const cell = sh.getRange(i + 1, 1);
-    if (r[1] === 'title') {
-      cell.setFontSize(16).setFontWeight('bold').setFontColor('#ffffff').setBackground('#1a1e3a');
-      sh.setRowHeight(i + 1, 40);
-    } else if (r[1] === 'h') {
-      cell.setFontSize(12).setFontWeight('bold').setFontColor('#1a3c6e').setBackground('#e7effb');
-      sh.setRowHeight(i + 1, 26);
-    } else if (r[1] === 'code') {
-      cell.setFontFamily('Consolas').setBackground('#f2f2f2').setFontColor('#b3261e');
-    } else if (r[1] === 'note') {
-      cell.setFontColor('#666666').setWrap(true);
-    } else {
-      cell.setWrap(true);
-    }
-  });
-  sh.getRange(1, 1, rows.length, 1).setVerticalAlignment('middle');
-  sh.setTabColor('#f4b400');
-  ss.setActiveSheet(sh);
-  return sh;
+  return UsageSheet.buildDoc(SpreadsheetApp.getActive(), JQ.SHEETS.USAGE, rows);
 }
 
 // ============================================================================
