@@ -324,20 +324,7 @@ function riskComment_(r) {
 }
 
 // ヘッダ色＋行縞（バンディング）でシートを装飾。headerColor=濃色, altColor=淡色の縞
-function styleSheet_(sheet, numCols, headerColor, altColor) {
-  if (!sheet || sheet.getLastRow() < 1 || numCols < 1) return;
-  const lastRow = sheet.getLastRow();
-  // 既存バンディングを除去（再実行で重複エラーにしない）
-  sheet.getRange(1, 1, sheet.getMaxRows(), sheet.getMaxColumns()).getBandings().forEach(b => b.remove());
-  const band = sheet.getRange(1, 1, lastRow, numCols)
-    .applyRowBanding(SpreadsheetApp.BandingTheme.LIGHT_GREY, true, false);
-  band.setHeaderRowColor(headerColor).setFirstRowColor('#ffffff').setSecondRowColor(altColor);
-  sheet.getRange(1, 1, 1, numCols)
-    .setFontColor('#ffffff').setFontWeight('bold')
-    .setHorizontalAlignment('center').setVerticalAlignment('middle');
-  sheet.setFrozenRows(1);
-  sheet.setRowHeight(1, 30);
-}
+// styleSheet_ は共通モジュール SheetStyle.js（~/projects/SheetStyle.js のsymlink）に定義
 
 // ============================================================================
 //  ③ リスクスコア計算（通期FYを対象。最新FYと前期FYを比較）
