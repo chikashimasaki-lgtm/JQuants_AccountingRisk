@@ -254,31 +254,10 @@ function monthsSince_(dateStr) {
 // autoFit_ は共通モジュール AutoFit.js（~/projects/AutoFit.js のsymlink）に定義
 
 // 日本株の現在株価を Yahoo Finance から取得（4桁コード+.T）。fetchAllで並列・時間保険つき。
+// コアの一括取得は共通モジュール YahooPriceFetch.js（~/projects/YahooPriceFetch.js の
+// symlink）の fetchYahooPricesJP_ に集約。{ code: price } のマップを返す。
 function fetchPricesJP_(codes) {
-  const out  = {};
-  const uniq = Array.from(new Set(codes.filter(Boolean).map(String)));
-  const CHUNK = 40;
-  const start = Date.now();
-  for (let i = 0; i < uniq.length; i += CHUNK) {
-    if (Date.now() - start > 3 * 60 * 1000) break;  // 時間保険（全体で最大3分）
-    const slice = uniq.slice(i, i + CHUNK);
-    const reqs  = slice.map(c => ({
-      url: 'https://query1.finance.yahoo.com/v8/finance/chart/' + encodeURIComponent(c) + '.T',
-      headers: { 'User-Agent': 'Mozilla/5.0' },
-      muteHttpExceptions: true,
-    }));
-    let resps;
-    try { resps = UrlFetchApp.fetchAll(reqs); } catch (e) { continue; }
-    resps.forEach((res, j) => {
-      try {
-        if (res.getResponseCode() !== 200) return;
-        const p = JSON.parse(res.getContentText()).chart.result[0].meta.regularMarketPrice;
-        if (p && p > 0) out[slice[j]] = p;
-      } catch (_) {}
-    });
-    Utilities.sleep(200);
-  }
-  return out;
+  return fetchYahooPricesJP_(codes);
 }
 
 // 会計リスク列（5列目）に緑→黄→赤のカラースケールを適用
