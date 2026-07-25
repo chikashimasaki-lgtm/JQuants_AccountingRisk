@@ -234,12 +234,7 @@ function num_(v) {
   return isFinite(n) ? n : null;
 }
 
-// J-Quantsの5桁コード（4桁ティッカー+末尾0）を、見慣れた4桁に正規化する。
-// 例: "72030" → "7203" / "130A0" → "130A"。5桁で末尾0のときのみ落とす。
-function to4_(code) {
-  const c = String(code == null ? '' : code);
-  return (c.length === 5 && c.slice(-1) === '0') ? c.slice(0, 4) : c;
-}
+// to4_() の本体は共通モジュール StockCode.js（gas-shared/modules/StockCode.js の symlink）
 
 // 開示日（YYYY-MM-DD 等）から現在までの経過月数。無効なら Infinity。
 function monthsSince_(dateStr) {
