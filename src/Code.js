@@ -211,9 +211,7 @@ function resetCollectQueue() {
 }
 
 function clearResumeTriggers_() {
-  ScriptApp.getProjectTriggers()
-    .filter(t => t.getHandlerFunction() === 'collectStatements')
-    .forEach(t => ScriptApp.deleteTrigger(t));
+  clearTriggersFor_('collectStatements');   // 共通モジュール TriggerUtils.js
 }
 
 function HEADER_STATEMENTS_() {
