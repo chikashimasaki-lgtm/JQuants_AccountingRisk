@@ -23,6 +23,10 @@ const JQ = {
   MARKET_NAME_PRIME: 'プライム',     // /equities/master の MktNm
   MARKET_CODE_PRIME: '0111',         // /equities/master の Mkt（0111=プライム）
   TIME_BUDGET_MS:   4.5 * 60 * 1000, // 1回の実行で使う時間上限（GAS 6分制限対策）
+  // 429（レート制限）や5xx（一時障害）で即座に throw すると、収集の途中でも
+  // その回の処理が丸ごと落ちる。数百銘柄を回すため一時的な失敗は必ず起きる。
+  FETCH_RETRY:      2,               // 再試行の回数（初回を含めず）
+  FETCH_BACKOFF_MS: 1500,            // 初回の待ち時間。以降は指数的に伸ばす
 };
 
 // J-Quants V2 /fins/summary の項目名（短縮化されている）
@@ -82,6 +86,33 @@ function getApiKey_() {
   return key;
 }
 
+/**
+ * 1URLを取得する。429（レート制限）と5xx（一時障害）だけ指数バックオフで再試行する。
+ * Sakata_Screener の fetchAllWithRetry_ と同じ方針。
+ * 400/401/404 のような恒久的なエラーは再試行しても同じなので、そのまま返して呼び元に throw させる。
+ * 通信自体が例外になった場合（タイムアウト等）も同様に再試行する。
+ * @return {HTTPResponse} 最後に得た応答
+ */
+function fetchWithRetry_(url, options) {
+  let res = null, lastErr = null;
+  for (let attempt = 0; attempt <= JQ.FETCH_RETRY; attempt++) {
+    if (attempt > 0) Utilities.sleep(JQ.FETCH_BACKOFF_MS * Math.pow(2, attempt - 1));
+    try {
+      res = UrlFetchApp.fetch(url, options);
+      lastErr = null;
+      const code = res.getResponseCode();
+      if (!(code === 429 || code >= 500)) return res;   // 成功・恒久エラーはそのまま返す
+      Logger.log('J-Quants 応答 ' + code + '（再試行 ' + (attempt + 1) + '/' + (JQ.FETCH_RETRY + 1) + '）: ' + url);
+    } catch (e) {
+      lastErr = e;
+      res = null;
+      Logger.log('J-Quants 通信エラー（再試行 ' + (attempt + 1) + '/' + (JQ.FETCH_RETRY + 1) + '）: ' + e.message);
+    }
+  }
+  if (lastErr) throw lastErr;   // 最後まで通信自体に失敗した
+  return res;                   // 429/5xx のまま返す（呼び元がステータスを見て throw する）
+}
+
 // GET（pagination_key 自動追従）。戻り値はデータ配列（V2は "data" キー）。
 function jqGet_(path, params) {
   const apiKey = getApiKey_();
@@ -96,7 +127,7 @@ function jqGet_(path, params) {
   let pagination = null;
   do {
     const u = pagination ? url + (url.includes('?') ? '&' : '?') + 'pagination_key=' + encodeURIComponent(pagination) : url;
-    const res  = UrlFetchApp.fetch(u, { headers: { 'x-api-key': apiKey }, muteHttpExceptions: true });
+    const res  = fetchWithRetry_(u, { headers: { 'x-api-key': apiKey }, muteHttpExceptions: true });
     const code = res.getResponseCode();
     if (code !== 200) throw new Error('GET ' + path + ' 失敗(' + code + '): ' + res.getContentText().slice(0, 300));
     const json = JSON.parse(res.getContentText());
