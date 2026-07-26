@@ -2,9 +2,17 @@
 
 ## フォント標準化
 
-プログラムが出力する全てのテキスト（HTML、Webページなど）は、**Noto Sans JPフォント**を使用してください。
+### 出力形式別フォント指定
+
+- **HTML/Web出力**: **Noto Sans JP**
+- **PowerPoint**: **Meiryou UI**
+- **Googleドキュメント/スライド/シート**: **Noto Sans JP**
 
 ### 実装方法
+
+#### PowerPointの場合
+- スライドマスターで「Meiryou UI」をデフォルトフォントに設定
+- 全テキストボックスに適用
 
 #### HTMLファイルの場合
 ```html
