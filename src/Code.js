@@ -86,32 +86,8 @@ function getApiKey_() {
   return key;
 }
 
-/**
- * 1URLを取得する。429（レート制限）と5xx（一時障害）だけ指数バックオフで再試行する。
- * Sakata_Screener の fetchAllWithRetry_ と同じ方針。
- * 400/401/404 のような恒久的なエラーは再試行しても同じなので、そのまま返して呼び元に throw させる。
- * 通信自体が例外になった場合（タイムアウト等）も同様に再試行する。
- * @return {HTTPResponse} 最後に得た応答
- */
-function fetchWithRetry_(url, options) {
-  let res = null, lastErr = null;
-  for (let attempt = 0; attempt <= JQ.FETCH_RETRY; attempt++) {
-    if (attempt > 0) Utilities.sleep(JQ.FETCH_BACKOFF_MS * Math.pow(2, attempt - 1));
-    try {
-      res = UrlFetchApp.fetch(url, options);
-      lastErr = null;
-      const code = res.getResponseCode();
-      if (!(code === 429 || code >= 500)) return res;   // 成功・恒久エラーはそのまま返す
-      Logger.log('J-Quants 応答 ' + code + '（再試行 ' + (attempt + 1) + '/' + (JQ.FETCH_RETRY + 1) + '）: ' + url);
-    } catch (e) {
-      lastErr = e;
-      res = null;
-      Logger.log('J-Quants 通信エラー（再試行 ' + (attempt + 1) + '/' + (JQ.FETCH_RETRY + 1) + '）: ' + e.message);
-    }
-  }
-  if (lastErr) throw lastErr;   // 最後まで通信自体に失敗した
-  return res;                   // 429/5xx のまま返す（呼び元がステータスを見て throw する）
-}
+// 1URL取得の再試行 fetchWithRetry_() の本体は共通モジュール FetchRetry.js
+// （gas-shared/modules/FetchRetry.js の symlink）。Sakata_Screener と共有している。
 
 // GET（pagination_key 自動追従）。戻り値はデータ配列（V2は "data" キー）。
 function jqGet_(path, params) {
@@ -127,7 +103,8 @@ function jqGet_(path, params) {
   let pagination = null;
   do {
     const u = pagination ? url + (url.includes('?') ? '&' : '?') + 'pagination_key=' + encodeURIComponent(pagination) : url;
-    const res  = fetchWithRetry_(u, { headers: { 'x-api-key': apiKey }, muteHttpExceptions: true });
+    const res  = fetchWithRetry_(u, { headers: { 'x-api-key': apiKey }, muteHttpExceptions: true },
+      { retry: JQ.FETCH_RETRY, backoffMs: JQ.FETCH_BACKOFF_MS, label: 'J-Quants ' + path });
     const code = res.getResponseCode();
     if (code !== 200) throw new Error('GET ' + path + ' 失敗(' + code + '): ' + res.getContentText().slice(0, 300));
     const json = JSON.parse(res.getContentText());
