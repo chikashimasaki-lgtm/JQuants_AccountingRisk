@@ -146,18 +146,33 @@ function fetchPrimeUniverse() {
 // ============================================================================
 
 function collectStatements() {
+  // 自動再開トリガーと手動実行が重なった場合の二重追記を防ぐ（多重実行排他）
+  // Sakata_Screener の scanSignals() と同じ対策。
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(1000)) {
+    Logger.log('別の収集が進行中のためスキップ（90秒後に再試行）');
+    clearResumeTriggers_();
+    ScriptApp.newTrigger('collectStatements').timeBased().after(90 * 1000).create();
+    return;
+  }
+
   const ss  = SpreadsheetApp.getActive();
   const uni = ss.getSheetByName(JQ.SHEETS.UNIVERSE);
   const st  = ss.getSheetByName(JQ.SHEETS.STATEMENTS);
   if (!uni || uni.getLastRow() < 2) throw new Error('先に「① プライム銘柄を取得」を実行してください');
 
+  // 進捗は「銘柄マスタの何行目まで処理したか」というカーソルだけを持つ。
+  // 以前はキュー配列そのものをJSONで丸ごとScriptPropertiesに保存していたが、
+  // プライム約1600銘柄では1値あたり9KBの上限を超えて setProperty が例外になり得た
+  // （Sakata_Screener の scanSignals が SK_CURSOR 方式に切り替えたのと同じ問題）。
+  // カーソル1個なら数バイトで済むため、この上限には掛からない。
   const props = PropertiesService.getScriptProperties();
-  let queue = JSON.parse(props.getProperty('JQ_COLLECT_QUEUE') || 'null');
-  if (!queue) {
-    queue = uni.getRange(2, 1, uni.getLastRow() - 1, 1).getValues().flat().map(String).filter(Boolean);
-    // ヘッダを（無ければ）用意
-    if (st.getLastRow() === 0) st.appendRow(HEADER_STATEMENTS_());
-  }
+  const codes = uni.getRange(2, 1, uni.getLastRow() - 1, 1).getValues().flat().map(String).filter(Boolean);
+  const total = codes.length;
+  let cursor = Number(props.getProperty('JQ_COLLECT_CURSOR') || 0);
+
+  // ヘッダを（無ければ）用意
+  if (!cursor && st.getLastRow() === 0) st.appendRow(HEADER_STATEMENTS_());
 
   // 既存キー（重複防止）
   const seen = new Set();
@@ -170,9 +185,9 @@ function collectStatements() {
   const buffer = [];
   let processed = 0;
 
-  while (queue.length > 0) {
+  while (cursor < total) {
     if (Date.now() - start > JQ.TIME_BUDGET_MS) break;
-    const code = queue.shift();
+    const code = codes[cursor];
     try {
       const list = jqGet_('/fins/summary', { code: code });
       list.forEach(s => {
@@ -182,10 +197,12 @@ function collectStatements() {
         buffer.push(rowFromStatement_(s));
       });
       processed++;
+      cursor++;
     } catch (e) {
       Logger.log('収集エラー(' + code + '): ' + e.message);
-      // 認証切れ等の一時失敗はキューに戻して次回再試行
-      if (/失敗\(401\)|失敗\(429\)|失敗\(50/.test(e.message)) { queue.unshift(code); break; }
+      // 認証切れ等の一時失敗は同じ銘柄から次回再試行（カーソルを進めずに中断）
+      if (/失敗\(401\)|失敗\(429\)|失敗\(50/.test(e.message)) break;
+      cursor++;  // 一時的でない失敗はこの銘柄をスキップして次へ
     }
     Utilities.sleep(150);
   }
@@ -194,13 +211,13 @@ function collectStatements() {
 
   // 続きがあれば保存して自動再開トリガーを張る
   clearResumeTriggers_();
-  if (queue.length > 0) {
-    props.setProperty('JQ_COLLECT_QUEUE', JSON.stringify(queue));
+  if (cursor < total) {
+    props.setProperty('JQ_COLLECT_CURSOR', String(cursor));
     ScriptApp.newTrigger('collectStatements').timeBased().after(90 * 1000).create();
-    Logger.log('一時停止: ' + processed + '銘柄処理 / 残り ' + queue.length + '銘柄。90秒後に自動再開。');
-    SpreadsheetApp.getActive().toast('残り ' + queue.length + '銘柄。自動再開します', '会計リスク', 5);
+    Logger.log('一時停止: ' + processed + '銘柄処理 / 残り ' + (total - cursor) + '銘柄。90秒後に自動再開。');
+    SpreadsheetApp.getActive().toast('残り ' + (total - cursor) + '銘柄。自動再開します', '会計リスク', 5);
   } else {
-    props.deleteProperty('JQ_COLLECT_QUEUE');
+    props.deleteProperty('JQ_COLLECT_CURSOR');
     if (st.getLastColumn() > 0) {
       styleSheet_(st, st.getLastColumn(), '#13324a', '#eaf3f4');
       if (st.getLastRow() > 1) st.getRange(2, 1, st.getLastRow() - 1, 1).setHorizontalAlignment('right');  // コード列を右寄せ
@@ -213,7 +230,7 @@ function collectStatements() {
 }
 
 function resetCollectQueue() {
-  PropertiesService.getScriptProperties().deleteProperty('JQ_COLLECT_QUEUE');
+  PropertiesService.getScriptProperties().deleteProperty('JQ_COLLECT_CURSOR');
   clearResumeTriggers_();
   SpreadsheetApp.getActive().toast('収集の進捗をリセットしました', '会計リスク', 5);
 }
