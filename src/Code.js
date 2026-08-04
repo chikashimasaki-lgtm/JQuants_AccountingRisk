@@ -106,7 +106,11 @@ function jqGet_(path, params) {
     const res  = fetchWithRetry_(u, { headers: { 'x-api-key': apiKey }, muteHttpExceptions: true },
       { retry: JQ.FETCH_RETRY, backoffMs: JQ.FETCH_BACKOFF_MS, label: 'J-Quants ' + path });
     const code = res.getResponseCode();
-    if (code !== 200) throw new Error('GET ' + path + ' 失敗(' + code + '): ' + res.getContentText().slice(0, 300));
+    if (code !== 200) {
+      const err = new Error('GET ' + path + ' 失敗(' + code + '): ' + res.getContentText().slice(0, 300));
+      err.status = code;
+      throw err;
+    }
     const json = JSON.parse(res.getContentText());
     if (Array.isArray(json.data)) out.push.apply(out, json.data);
     pagination = json.pagination_key || null;
@@ -201,7 +205,9 @@ function collectStatements() {
     } catch (e) {
       Logger.log('収集エラー(' + code + '): ' + e.message);
       // 認証切れ等の一時失敗は同じ銘柄から次回再試行（カーソルを進めずに中断）
-      if (/失敗\(401\)|失敗\(429\)|失敗\(50/.test(e.message)) break;
+      // jqGet_ が付与する e.status を見る（以前はメッセージ文言を正規表現で解析していたが、
+      // 文言変更に弱いためステータスコードで直接判定するように変更）
+      if (e.status === 401 || e.status === 429 || String(e.status).startsWith('50')) break;
       cursor++;  // 一時的でない失敗はこの銘柄をスキップして次へ
     }
     Utilities.sleep(150);
