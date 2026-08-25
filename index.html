@@ -101,6 +101,14 @@ let DATA = [], sortKey = 'risk', sortAsc = false;
 function riskClass(v){ return v>=65?'r-hi':v>=52?'r-mid':'r-lo'; }
 function fnum(v,d=3){ return (v===''||v==null)?'':Number(v).toFixed(d); }
 function signClass(v){ return v>0?'pos':v<0?'neg':''; }
+// accounting_risk_prime.json はJ-Quants由来の企業名・業種名を含む。通常は
+// <script>等が入ることはないが、render()がinnerHTMLへ直接埋め込んでいるため
+// 念のためHTMLエスケープする（audit_demoのkousaihi.html/risk-assessment.htmlの
+// XSS修正と同じ考え方）。表示内容は変わらない。
+function esc(s){
+  return String(s==null?'':s).replace(/[&<>"']/g, c =>
+    ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
 
 function render(){
   const q = document.getElementById('q').value.trim();
@@ -121,17 +129,17 @@ function render(){
   tb.innerHTML = rows.map((r,i)=>`
     <tr>
       <td class="l">${i+1}</td>
-      <td class="l"><span class="name">${r.name}</span> <span class="code">${r.code}</span></td>
-      <td class="l">${r.sector||''}</td>
+      <td class="l"><span class="name">${esc(r.name)}</span> <span class="code">${esc(r.code)}</span></td>
+      <td class="l">${esc(r.sector)}</td>
       <td><span class="risk ${riskClass(r.risk)}">${fnum(r.risk,1)}</span>${r.cfFlag?'<span class="badge">CF-</span>':''}</td>
       <td>${r.price===''||r.price==null?'':Number(r.price).toLocaleString()}</td>
       <td>${fnum(r.accruals)}</td>
       <td class="${signClass(r.opMarginChg)}">${fnum(r.opMarginChg)}</td>
       <td>${fnum(r.equityRatio)}</td>
       <td>${fnum(r.specialDep)}</td>
-      <td class="l">${r.disclosed||''}</td>
-      <td class="l lvl">${r.level||''}</td>
-      <td class="l cmt">${r.comment||''}</td>
+      <td class="l">${esc(r.disclosed)}</td>
+      <td class="l lvl">${esc(r.level)}</td>
+      <td class="l cmt">${esc(r.comment)}</td>
     </tr>`).join('');
   document.getElementById('meta').textContent = `${rows.length}社表示`;
 }
