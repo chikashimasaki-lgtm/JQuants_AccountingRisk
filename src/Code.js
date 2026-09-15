@@ -123,13 +123,21 @@ function jqGet_(path, params) {
 // ============================================================================
 
 function fetchPrimeUniverse() {
+  // この処理は「銘柄マスタ」シートを全消去して入れ替える。Sakata_Screener で同種の
+  // 処理が手入力した銘柄リストを無警告で全消去していた事故があったため（3384e52）、
+  // 実行前に確認する。confirmDestructive_() は gas-shared/modules/ConfirmUi.js の symlink。
+  const shNow = SpreadsheetApp.getActive().getSheetByName(JQ.SHEETS.UNIVERSE);
+  const cur = shNow ? Math.max(shNow.getLastRow() - 1, 0) : 0;
+  if (!confirmDestructive_('プライム銘柄を取得',
+      '「' + JQ.SHEETS.UNIVERSE + '」シートの内容（現在 ' + cur + '件）をすべて置き換えます。\n手入力した内容も消えます。続行しますか？')) return;
+
   const info  = jqGet_('/equities/master');
   const prime = info.filter(x => x.Mkt === JQ.MARKET_CODE_PRIME || x.MktNm === JQ.MARKET_NAME_PRIME);
 
   const rows = prime.map(x => [
     to4_(x.Code),
-    x.CoName || '',
-    x.S17Nm || x.S33Nm || '',
+    sanitizeForSheetCell_(x.CoName || ''),
+    sanitizeForSheetCell_(x.S17Nm || x.S33Nm || ''),
     x.MktNm || '',
   ]);
 
