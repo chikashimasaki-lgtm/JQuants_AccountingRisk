@@ -50,6 +50,10 @@ const F = {
 // ============================================================================
 
 function onOpen() {
+  // 使い方シートは一番右に置く（全プロジェクト共通方針、2026-09-19）。
+  // 既存のスプレッドシートを開いたときに追従させるためのもの。既に末尾なら何もしない。
+  try { UsageSheet.moveToLast(SpreadsheetApp.getActiveSpreadsheet()); } catch (e) {}
+
   SpreadsheetApp.getUi().createMenu('会計リスク')
     .addItem('セットアップ（シート作成）', 'setup')
     .addSeparator()
